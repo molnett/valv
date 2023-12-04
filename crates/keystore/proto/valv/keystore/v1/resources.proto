@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package valv.keystore.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "google/api/field_behavior.proto";
+
+message MasterKey {
+  string name = 1
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+  
+  google.protobuf.Timestamp create_time = 2
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  MasterKeyVersion primary = 3
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+  
+  google.protobuf.Duration rotation_period = 4
+    [(google.api.field_behavior) = OPTIONAL];
+
+  google.protobuf.Duration destroy_scheduled_duration = 5
+    [(google.api.field_behavior) = IMMUTABLE];
+}
+
+message MasterKeyVersion {
+
+  string name = 1
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  enum MasterKeyVersionState {
+    MASTER_KEY_VERSION_STATE_UNSPECIFIED = 0;
+    MASTER_KEY_VERSION_STATE_ENABLED = 1;
+    MASTER_KEY_VERSION_STATE_DISABLED = 2;
+    MASTER_KEY_VERSION_STATE_DESTROYED = 3;
+    MASTER_KEY_VERSION_STATE_DESTROY_SCHEDULED = 4;
+    MASTER_KEY_VERSION_STATE_PRIMARY = 5;
+  }
+  MasterKeyVersionState state = 2
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  google.protobuf.Timestamp create_time = 3
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  google.protobuf.Timestamp scheduled_destroy_time = 4
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  google.protobuf.Timestamp destroy_time = 5
+    [(google.api.field_behavior) = OUTPUT_ONLY];
+}

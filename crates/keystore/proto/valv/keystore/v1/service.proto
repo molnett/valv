@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package valv.keystore.v1;
+
+import "google/api/field_behavior.proto";
+import "valv/keystore/v1/resources.proto";
+
+service MasterKeyManagementService {
+  rpc CreateMasterKey(CreateMasterKeyRequest) returns (CreateMasterKeyResponse);
+  rpc ListMasterKeys(ListMasterKeysRequest) returns (ListMasterKeysResponse);
+  rpc CreateMasterKeyVersion(CreateMasterKeyVersionRequest) returns (CreateMasterKeyVersionResponse);
+  rpc DestroyMasterKeyVersion(DestroyMasterKeyVersionRequest) returns (DestroyMasterKeyVersionResponse);
+
+  rpc Encrypt(EncryptRequest) returns (EncryptResponse);
+  rpc Decrypt(DecryptRequest) returns (DecryptResponse);
+}
+
+message CreateMasterKeyRequest {
+  string master_key_id = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  MasterKey master_key = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListMasterKeysRequest {}
+
+message DestroyMasterKeyVersionRequest {
+  string master_key_id = 1
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message CreateMasterKeyVersionRequest {
+  string master_key_id = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  MasterKeyVersion master_key_version = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message EncryptRequest {
+  string master_key_id = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  bytes plaintext = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message DecryptRequest {
+  string master_key_id = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  bytes ciphertext = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message CreateMasterKeyResponse {
+  MasterKey master_key = 1;
+}
+
+message CreateMasterKeyVersionResponse {
+  MasterKeyVersion master_key_version = 1;
+}
+
+message DestroyMasterKeyVersionResponse {
+  MasterKeyVersion master_key_version = 1;
+}
+
+message ListMasterKeysResponse {
+  repeated MasterKey master_keys = 1;
+}
+
+message EncryptResponse {
+  string name = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  bytes ciphertext = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message DecryptResponse {
+  bytes plaintext = 1
+    [(google.api.field_behavior) = REQUIRED];
+}
