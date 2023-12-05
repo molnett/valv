@@ -8,6 +8,8 @@ import "valv/keystore/v1/resources.proto";
 service MasterKeyManagementService {
   rpc CreateMasterKey(CreateMasterKeyRequest) returns (CreateMasterKeyResponse);
   rpc ListMasterKeys(ListMasterKeysRequest) returns (ListMasterKeysResponse);
+
+  rpc ListMasterKeyVersions(ListMasterKeyVersionsRequest) returns (ListMasterKeyVersionsResponse);
   rpc CreateMasterKeyVersion(CreateMasterKeyVersionRequest) returns (CreateMasterKeyVersionResponse);
   rpc DestroyMasterKeyVersion(DestroyMasterKeyVersionRequest) returns (DestroyMasterKeyVersionResponse);
 
@@ -25,16 +27,18 @@ message CreateMasterKeyRequest {
 
 message ListMasterKeysRequest {}
 
-message DestroyMasterKeyVersionRequest {
-  string master_key_id = 1
-    [(google.api.field_behavior) = REQUIRED];
-}
+message ListMasterKeyVersionsRequest {}
 
 message CreateMasterKeyVersionRequest {
   string master_key_id = 1
     [(google.api.field_behavior) = REQUIRED];
 
   MasterKeyVersion master_key_version = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message DestroyMasterKeyVersionRequest {
+  string master_key_id = 1
     [(google.api.field_behavior) = REQUIRED];
 }
 
@@ -54,8 +58,16 @@ message DecryptRequest {
     [(google.api.field_behavior) = REQUIRED];
 }
 
+message ListMasterKeysResponse {
+  repeated MasterKey master_keys = 1;
+}
+
 message CreateMasterKeyResponse {
   MasterKey master_key = 1;
+}
+
+message ListMasterKeyVersionsResponse {
+  repeated MasterKeyVersion master_key_versions = 1;
 }
 
 message CreateMasterKeyVersionResponse {
@@ -64,10 +76,6 @@ message CreateMasterKeyVersionResponse {
 
 message DestroyMasterKeyVersionResponse {
   MasterKeyVersion master_key_version = 1;
-}
-
-message ListMasterKeysResponse {
-  repeated MasterKey master_keys = 1;
 }
 
 message EncryptResponse {

@@ -1,5 +1,15 @@
 use std::{collections::HashMap};
 
+mod gen;
+
+pub mod valv {
+    pub mod keystore {
+        pub mod v1 {
+            include!("gen/valv.keystore.v1.rs");
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CryptoKey {
     pub name: String,
@@ -64,6 +74,7 @@ impl KeystoreAPI for Keystore {
         
         crypto_key
     }
+
     fn list_crypto_keys(&self) {
         println!("{:?}", self.keys.keys());
     }
