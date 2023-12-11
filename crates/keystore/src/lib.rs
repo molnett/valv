@@ -1,5 +1,7 @@
 use std::{collections::HashMap};
 
+use boring::error::ErrorStack;
+
 mod gen;
 
 pub mod valv {
@@ -13,17 +15,21 @@ pub mod valv {
 #[derive(Clone)]
 pub struct CryptoKey {
     pub name: String,
-    pub encrypted_value: Vec<u8>,
+    pub encrypted_value: [u8; 44],
 }
 
 pub struct DecryptedKey {
     pub name: String,
-    pub decrypted_key: Vec<u8>,
+    pub decrypted_key: [u8; 32],
+    pub iv: [u8; 12],
 }
 
 pub trait KeystoreAPI {
     fn list_crypto_keys(&self);
     fn create_crypto_key(&mut self, name: String) -> CryptoKey;
+
+    fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
+    fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
 }
 
 pub struct Keystore {
@@ -49,7 +55,7 @@ impl Keystore {
 impl KeystoreAPI for Keystore {
     fn create_crypto_key(&mut self, name: String) -> CryptoKey {
         let mut iv = [0; 12];
-        let mut key = [0; 256];
+        let mut key = [0; 32];
         boring::rand::rand_bytes(&mut iv).unwrap();
         boring::rand::rand_bytes(&mut key).unwrap();
 
@@ -60,22 +66,74 @@ impl KeystoreAPI for Keystore {
             &key,
         ).unwrap();
 
+        let mut encrypted_result: [u8; 44] = [0; 44];
+        let (one, two) = encrypted_result.split_at_mut(12);
+        one.copy_from_slice(&iv);
+        two.copy_from_slice(&encrypted_key);
+
         let crypto_key = CryptoKey {
             name: name.clone(),
-            encrypted_value: encrypted_key,
+            // IV + encrypted key
+            encrypted_value: encrypted_result
         };
         self.keys.insert(name.clone(), crypto_key.clone());
 
         let decrypted_key = DecryptedKey {
             name: name.clone(),
-            decrypted_key: key.to_vec(),
+            decrypted_key: key,
+            iv,
         };
-        self.decrypted_keys_cache.insert(name, decrypted_key);
+        self.decrypted_keys_cache.insert(name.clone(), decrypted_key);
         
+        println!("Created crypto key: {}", name);
+
         crypto_key
     }
 
     fn list_crypto_keys(&self) {
         println!("{:?}", self.keys.keys());
+    }
+
+    fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
+        println!("Encrypting with key: {}", key_name);
+        let key = self.keys.get(&key_name).unwrap();
+        let mut iv = [0; 12];
+        boring::rand::rand_bytes(&mut iv).unwrap();
+
+        let mut tag = [0; 16];
+
+        let encrypted_key = boring::symm::encrypt_aead(
+            boring::symm::Cipher::aes_256_gcm(),
+            &self.decrypted_keys_cache.get(&key.name).unwrap().decrypted_key,
+            Some(&iv),
+            &[],
+            &plaintext,
+            &mut tag,
+        ).unwrap();
+        
+        let mut encrypted_result: Vec<u8> = vec!();
+        // Add IV and encrypted key to result
+        encrypted_result.append(iv.to_vec().as_mut());
+        encrypted_result.append(encrypted_key.to_vec().as_mut());
+        encrypted_result.append(tag.to_vec().as_mut());
+
+        encrypted_result
+    }
+
+    fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack> {
+        println!("Decrypting with key: {}", key_name);
+        let key = self.keys.get(&key_name).unwrap();
+
+        let (iv, remainder) = ciphertext.split_at(12);
+        let (cipher, tag) = remainder.split_at(remainder.len() - 16);
+        
+        boring::symm::decrypt_aead(
+            boring::symm::Cipher::aes_256_gcm(),
+            &self.decrypted_keys_cache.get(&key.name).unwrap().decrypted_key,
+            Some(&iv),
+            &[],
+            &cipher,
+            tag,
+        )
     }
 }
