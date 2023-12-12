@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::{collections::HashMap, sync::RwLock};
 
 use boring::error::ErrorStack;
 
@@ -24,25 +24,25 @@ pub struct DecryptedKey {
     pub iv: [u8; 12],
 }
 
-pub trait KeystoreAPI {
+pub trait KeystoreAPI: Send + Sync  {
     fn list_crypto_keys(&self);
-    fn create_crypto_key(&mut self, name: String) -> CryptoKey;
+    fn create_crypto_key(&self, name: String) -> CryptoKey;
 
     fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
     fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
 }
 
 pub struct Keystore {
-    pub keys: HashMap<String, CryptoKey>,
-    pub decrypted_keys_cache: HashMap<String, DecryptedKey>,
+    pub keys: RwLock<HashMap<String, CryptoKey>>,
+    pub decrypted_keys_cache: RwLock<HashMap<String, DecryptedKey>>,
     pub master_key: [u8; 32],
 }
 
 impl Keystore {
     pub fn new() -> Keystore {
         Keystore {
-            keys: HashMap::new(),
-            decrypted_keys_cache: HashMap::new(),
+            keys: RwLock::new(HashMap::new()),
+            decrypted_keys_cache: RwLock::new(HashMap::new()),
             master_key: [0; 32],
         }
     }
@@ -53,7 +53,7 @@ impl Keystore {
 }
 
 impl KeystoreAPI for Keystore {
-    fn create_crypto_key(&mut self, name: String) -> CryptoKey {
+    fn create_crypto_key(&self, name: String) -> CryptoKey {
         let mut iv = [0; 12];
         let mut key = [0; 32];
         boring::rand::rand_bytes(&mut iv).unwrap();
@@ -76,14 +76,14 @@ impl KeystoreAPI for Keystore {
             // IV + encrypted key
             encrypted_value: encrypted_result
         };
-        self.keys.insert(name.clone(), crypto_key.clone());
+        self.keys.write().unwrap().insert(name.clone(), crypto_key.clone());
 
         let decrypted_key = DecryptedKey {
             name: name.clone(),
             decrypted_key: key,
             iv,
         };
-        self.decrypted_keys_cache.insert(name.clone(), decrypted_key);
+        self.decrypted_keys_cache.write().unwrap().insert(name.clone(), decrypted_key);
         
         println!("Created crypto key: {}", name);
 
@@ -91,12 +91,13 @@ impl KeystoreAPI for Keystore {
     }
 
     fn list_crypto_keys(&self) {
-        println!("{:?}", self.keys.keys());
+        println!("{:?}", self.keys.read().unwrap().keys());
     }
 
     fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
         println!("Encrypting with key: {}", key_name);
-        let key = self.keys.get(&key_name).unwrap();
+        let keys = self.keys.read().unwrap();
+        let key = keys.get(&key_name).unwrap();
         let mut iv = [0; 12];
         boring::rand::rand_bytes(&mut iv).unwrap();
 
@@ -104,7 +105,7 @@ impl KeystoreAPI for Keystore {
 
         let encrypted_key = boring::symm::encrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
-            &self.decrypted_keys_cache.get(&key.name).unwrap().decrypted_key,
+            &self.decrypted_keys_cache.read().unwrap().get(&key.name).unwrap().decrypted_key,
             Some(&iv),
             &[],
             &plaintext,
@@ -122,14 +123,15 @@ impl KeystoreAPI for Keystore {
 
     fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack> {
         println!("Decrypting with key: {}", key_name);
-        let key = self.keys.get(&key_name).unwrap();
+        let keys = self.keys.read().unwrap();
+        let key = keys.get(&key_name).unwrap();
 
         let (iv, remainder) = ciphertext.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
         
         boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
-            &self.decrypted_keys_cache.get(&key.name).unwrap().decrypted_key,
+            &self.decrypted_keys_cache.read().unwrap().get(&key.name).unwrap().decrypted_key,
             Some(&iv),
             &[],
             &cipher,

@@ -1,20 +1,20 @@
+
 use std::sync::Arc;
 
 use keystore::{valv::keystore::v1::{MasterKey, master_key_management_service_server::{MasterKeyManagementService, MasterKeyManagementServiceServer}, CreateMasterKeyRequest, CreateMasterKeyResponse, ListMasterKeysRequest, ListMasterKeysResponse, ListMasterKeyVersionsRequest, ListMasterKeyVersionsResponse, CreateMasterKeyVersionRequest, CreateMasterKeyVersionResponse, MasterKeyVersion, DestroyMasterKeyVersionRequest, DestroyMasterKeyVersionResponse, EncryptRequest, EncryptResponse, DecryptRequest, DecryptResponse}, KeystoreAPI, Keystore};
-use tokio::sync::Mutex;
 use tonic::transport::Server;
 
 struct API {
-    keystore: Arc<Mutex<keystore::Keystore>>,
+    keystore: Arc<Keystore>
 }
 
 #[tonic::async_trait]
-impl MasterKeyManagementService for API {
+impl MasterKeyManagementService for API  {
     async fn create_master_key(
         &self,
         request: tonic::Request<CreateMasterKeyRequest>,
     ) -> Result<tonic::Response<CreateMasterKeyResponse>, tonic::Status> {
-        let key = self.keystore.lock().await.create_crypto_key(request.get_ref().master_key_id.clone());
+        let key = self.keystore.create_crypto_key(request.get_ref().master_key_id.clone());
 
         let reply = CreateMasterKeyResponse { master_key: Some(MasterKey{
             name: key.name,
@@ -64,7 +64,7 @@ impl MasterKeyManagementService for API {
         &self,
         request: tonic::Request<EncryptRequest>,
     ) -> Result<tonic::Response<EncryptResponse>, tonic::Status> {
-        let encrypted_value = self.keystore.lock().await.encrypt(request.get_ref().master_key_id.clone(), request.get_ref().plaintext.clone().to_vec());
+        let encrypted_value = self.keystore.encrypt(request.get_ref().master_key_id.clone(), request.get_ref().plaintext.clone().to_vec());
 
         let reply = keystore::valv::keystore::v1::EncryptResponse {
             name: request.get_ref().master_key_id.clone(),
@@ -78,7 +78,7 @@ impl MasterKeyManagementService for API {
         &self,
         request: tonic::Request<DecryptRequest>,
     ) -> Result<tonic::Response<DecryptResponse>, tonic::Status> {
-        let decrypted_result = self.keystore.lock().await.decrypt(request.get_ref().master_key_id.clone(), request.get_ref().ciphertext.clone().to_vec());
+        let decrypted_result = self.keystore.decrypt(request.get_ref().master_key_id.clone(), request.get_ref().ciphertext.clone().to_vec());
         match decrypted_result {
             Ok(decrypted_value) => {
                 let reply = DecryptResponse {
@@ -98,7 +98,7 @@ async fn main() {
     let addr = "0.0.0.0:8080".parse().unwrap();
     let keystore = Keystore::new();
     let api = API {
-        keystore: Arc::new(Mutex::new(keystore))
+        keystore: Arc::new(keystore),
     };
 
     let svc = MasterKeyManagementServiceServer::new(api);
@@ -124,7 +124,7 @@ mod tests {
         let addr = "0.0.0.0:8080".parse().unwrap();
         let keystore = Keystore::new();
         let api = API {
-            keystore: Arc::new(Mutex::new(keystore))
+            keystore: Arc::new(keystore),
         };
         let svc = MasterKeyManagementServiceServer::new(api);
         let server_handle = tokio::spawn(Server::builder().add_service(svc).serve(addr));
@@ -178,7 +178,7 @@ mod tests {
         let addr = "0.0.0.0:8080".parse().unwrap();
         let keystore = Keystore::new();
         let api = API {
-            keystore: Arc::new(Mutex::new(keystore))
+            keystore: Arc::new(keystore)
         };
         let svc = MasterKeyManagementServiceServer::new(api);
         let server_handle = tokio::spawn(Server::builder().add_service(svc).serve(addr));
