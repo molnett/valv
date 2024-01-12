@@ -31,17 +31,9 @@ impl KeyManagementService for ValvAPI {
         return Ok(tonic::Response::new(google::kms::ListCryptoKeysResponse {
             crypto_keys: vec!(google::kms::CryptoKey {
                 name: "test".to_string(),
-                create_time: None,
-                next_rotation_time: None,
-                version_template: None,
                 purpose: google::kms::crypto_key::CryptoKeyPurpose::Unspecified as i32,
-                primary: None,
-                destroy_scheduled_duration: None,
-                labels: HashMap::new(),
-                import_only: false,
                 crypto_key_backend: "keystore".to_string(),
-                rotation_schedule: None,
-
+                ..Default::default()
             }),
             next_page_token: "".to_string(),
             total_size: 0,
@@ -113,16 +105,9 @@ impl KeyManagementService for ValvAPI {
 
         return Ok(tonic::Response::new(google::kms::CryptoKey {
             name: encrypted_key.name,
-            create_time: None,
-            next_rotation_time: None,
-            version_template: None,
             purpose: google::kms::crypto_key::CryptoKeyPurpose::EncryptDecrypt as i32,
-            primary: None,
-            destroy_scheduled_duration: None,
-            labels: HashMap::new(),
-            import_only: false,
             crypto_key_backend: "keystore".to_string(),
-            rotation_schedule: None,
+            ..Default::default()
         }));
     }
 
