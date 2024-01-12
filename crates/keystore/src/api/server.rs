@@ -1,11 +1,10 @@
 
 use std::sync::Arc;
 
-use keystore::{valv::keystore::v1::{MasterKey, master_key_management_service_server::{MasterKeyManagementService, MasterKeyManagementServiceServer}, CreateMasterKeyRequest, CreateMasterKeyResponse, ListMasterKeysRequest, ListMasterKeysResponse, ListMasterKeyVersionsRequest, ListMasterKeyVersionsResponse, CreateMasterKeyVersionRequest, CreateMasterKeyVersionResponse, MasterKeyVersion, DestroyMasterKeyVersionRequest, DestroyMasterKeyVersionResponse, EncryptRequest, EncryptResponse, DecryptRequest, DecryptResponse}, KeystoreAPI, Keystore};
-use tonic::transport::Server;
+use crate::{valv::keystore::v1::{MasterKey, master_key_management_service_server::{MasterKeyManagementService, MasterKeyManagementServiceServer}, CreateMasterKeyRequest, CreateMasterKeyResponse, ListMasterKeysRequest, ListMasterKeysResponse, ListMasterKeyVersionsRequest, ListMasterKeyVersionsResponse, CreateMasterKeyVersionRequest, CreateMasterKeyVersionResponse, MasterKeyVersion, DestroyMasterKeyVersionRequest, DestroyMasterKeyVersionResponse, EncryptRequest, EncryptResponse, DecryptRequest, DecryptResponse}, KeystoreAPI, Keystore};
 
-struct API {
-    keystore: Arc<Keystore>
+pub struct API {
+    pub keystore: Arc<Keystore>
 }
 
 #[tonic::async_trait]
@@ -66,7 +65,7 @@ impl MasterKeyManagementService for API  {
     ) -> Result<tonic::Response<EncryptResponse>, tonic::Status> {
         let encrypted_value = self.keystore.encrypt(request.get_ref().master_key_id.clone(), request.get_ref().plaintext.clone().to_vec());
 
-        let reply = keystore::valv::keystore::v1::EncryptResponse {
+        let reply = crate::valv::keystore::v1::EncryptResponse {
             name: request.get_ref().master_key_id.clone(),
             ciphertext: encrypted_value.into(),
         };
@@ -93,29 +92,14 @@ impl MasterKeyManagementService for API  {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let addr = "0.0.0.0:8080".parse().unwrap();
-    let keystore = Keystore::new();
-    let api = API {
-        keystore: Arc::new(keystore),
-    };
-
-    let svc = MasterKeyManagementServiceServer::new(api);
-    
-    Server::builder()
-        .add_service(svc)
-        .serve(addr)
-        .await
-        .unwrap();
-}
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+    use tonic::transport::Server;
 
     use super::*;
-    use keystore::{valv::keystore::v1::master_key_management_service_client::MasterKeyManagementServiceClient, Keystore};
+    use crate::{valv::keystore::v1::master_key_management_service_client::MasterKeyManagementServiceClient, Keystore};
     use tokio::time::sleep;
 
     #[tokio::test]

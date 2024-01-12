@@ -1,8 +1,10 @@
 use std::{collections::HashMap, sync::RwLock};
 
 use boring::error::ErrorStack;
+use secrecy::{Secret, ExposeSecret};
 
 mod gen;
+pub mod api;
 
 pub mod valv {
     pub mod keystore {
@@ -35,7 +37,7 @@ pub trait KeystoreAPI: Send + Sync  {
 pub struct Keystore {
     pub keys: RwLock<HashMap<String, CryptoKey>>,
     pub decrypted_keys_cache: RwLock<HashMap<String, DecryptedKey>>,
-    pub master_key: [u8; 32],
+    pub master_key: Secret<[u8; 32]>,
 }
 
 impl Keystore {
@@ -43,11 +45,11 @@ impl Keystore {
         Keystore {
             keys: RwLock::new(HashMap::new()),
             decrypted_keys_cache: RwLock::new(HashMap::new()),
-            master_key: [0; 32],
+            master_key: [0; 32].into(),
         }
     }
 
-    pub fn set_master_key(&mut self, key: [u8; 32]) {
+    pub fn set_master_key(&mut self, key: Secret<[u8; 32]>) {
         self.master_key = key;
     }
 }
@@ -61,7 +63,7 @@ impl KeystoreAPI for Keystore {
 
         let encrypted_key = boring::symm::encrypt(
             boring::symm::Cipher::aes_256_gcm(),
-            &self.master_key,
+            self.master_key.expose_secret(),
             Some(&iv),
             &key,
         ).unwrap();

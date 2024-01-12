@@ -4,8 +4,6 @@ pub mod google {
     }
 }
 
-
-
 use google::kms::key_management_service_server::KeyManagementService;
 use keystore::KeystoreAPI;
 use tokio::sync::Mutex;
