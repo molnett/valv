@@ -26,7 +26,7 @@ impl MasterKeyManagementService for API  {
 
     async fn list_master_keys(
         &self,
-        request: tonic::Request<ListMasterKeysRequest>,
+        _request: tonic::Request<ListMasterKeysRequest>,
     ) -> Result<tonic::Response<ListMasterKeysResponse>, tonic::Status> {
         let reply = ListMasterKeysResponse { master_keys: vec![MasterKey::default()] };
 
@@ -35,7 +35,7 @@ impl MasterKeyManagementService for API  {
 
     async fn list_master_key_versions(
         &self,
-        request: tonic::Request<ListMasterKeyVersionsRequest>,
+        _request: tonic::Request<ListMasterKeyVersionsRequest>,
     ) -> Result<tonic::Response<ListMasterKeyVersionsResponse>, tonic::Status> {
         let reply = ListMasterKeyVersionsResponse { master_key_versions: vec![MasterKeyVersion::default()] };
 
@@ -44,7 +44,7 @@ impl MasterKeyManagementService for API  {
 
     async fn create_master_key_version(
         &self,
-        request: tonic::Request<CreateMasterKeyVersionRequest>,
+        _request: tonic::Request<CreateMasterKeyVersionRequest>,
     ) -> Result<tonic::Response<CreateMasterKeyVersionResponse>, tonic::Status> {
         let reply = CreateMasterKeyVersionResponse { master_key_version: Some(MasterKeyVersion::default()) };
 
@@ -53,7 +53,7 @@ impl MasterKeyManagementService for API  {
 
     async fn destroy_master_key_version(
         &self,
-        request: tonic::Request<DestroyMasterKeyVersionRequest>,
+        _request: tonic::Request<DestroyMasterKeyVersionRequest>,
     ) -> Result<tonic::Response<DestroyMasterKeyVersionResponse>, tonic::Status> {
         let reply = DestroyMasterKeyVersionResponse { master_key_version: Some(MasterKeyVersion::default())};
 

@@ -4,7 +4,7 @@ pub mod google {
     }
 }
 
-use std::collections::HashMap;
+
 
 use google::kms::key_management_service_server::KeyManagementService;
 use keystore::KeystoreAPI;
@@ -100,7 +100,7 @@ impl KeyManagementService for ValvAPI {
         &self,
         request: tonic::Request<google::kms::CreateCryptoKeyRequest>,
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
-        let mut keystore = self.keystore.lock().await;
+        let keystore = self.keystore.lock().await;
         let encrypted_key = keystore.create_crypto_key(request.into_inner().crypto_key_id);
 
         return Ok(tonic::Response::new(google::kms::CryptoKey {
