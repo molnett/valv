@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use keystore::{Keystore, api, valv::keystore::v1::master_key_management_service_server::MasterKeyManagementServiceServer};
-use secrecy::{Secret, ExposeSecret};
+use keystore::{
+    api,
+    valv::keystore::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
+    Keystore,
+};
+use secrecy::{ExposeSecret, Secret};
 use tonic::transport::Server;
 
 #[derive(Parser)]
@@ -19,7 +23,11 @@ async fn main() {
 
     let mut keystore = Keystore::new();
 
-    let mut master_key = Secret::new(args.master_key.clone().expose_secret().clone().into_bytes()[..32].try_into().unwrap());
+    let master_key = Secret::new(
+        args.master_key.clone().expose_secret().clone().into_bytes()[..32]
+            .try_into()
+            .unwrap(),
+    );
 
     keystore.set_master_key(master_key);
 
@@ -28,7 +36,7 @@ async fn main() {
     };
 
     let svc = MasterKeyManagementServiceServer::new(api);
-    println!("Listening on {}", args.listen_addr); 
+    println!("Listening on {}", args.listen_addr);
 
     let addr = args.listen_addr.parse().unwrap();
 
@@ -38,5 +46,3 @@ async fn main() {
         .await
         .unwrap();
 }
-
-

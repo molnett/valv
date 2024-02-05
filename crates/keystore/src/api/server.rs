@@ -1,24 +1,39 @@
-
 use std::sync::Arc;
 
-use crate::{valv::keystore::v1::{MasterKey, master_key_management_service_server::{MasterKeyManagementService, MasterKeyManagementServiceServer}, CreateMasterKeyRequest, CreateMasterKeyResponse, ListMasterKeysRequest, ListMasterKeysResponse, ListMasterKeyVersionsRequest, ListMasterKeyVersionsResponse, CreateMasterKeyVersionRequest, CreateMasterKeyVersionResponse, MasterKeyVersion, DestroyMasterKeyVersionRequest, DestroyMasterKeyVersionResponse, EncryptRequest, EncryptResponse, DecryptRequest, DecryptResponse}, KeystoreAPI, Keystore};
+use crate::{
+    valv::keystore::v1::{
+        master_key_management_service_server::{
+            MasterKeyManagementService, MasterKeyManagementServiceServer,
+        },
+        CreateMasterKeyRequest, CreateMasterKeyResponse, CreateMasterKeyVersionRequest,
+        CreateMasterKeyVersionResponse, DecryptRequest, DecryptResponse,
+        DestroyMasterKeyVersionRequest, DestroyMasterKeyVersionResponse, EncryptRequest,
+        EncryptResponse, ListMasterKeyVersionsRequest, ListMasterKeyVersionsResponse,
+        ListMasterKeysRequest, ListMasterKeysResponse, MasterKey, MasterKeyVersion,
+    },
+    Keystore, KeystoreAPI,
+};
 
 pub struct API {
-    pub keystore: Arc<Keystore>
+    pub keystore: Arc<Keystore>,
 }
 
 #[tonic::async_trait]
-impl MasterKeyManagementService for API  {
+impl MasterKeyManagementService for API {
     async fn create_master_key(
         &self,
         request: tonic::Request<CreateMasterKeyRequest>,
     ) -> Result<tonic::Response<CreateMasterKeyResponse>, tonic::Status> {
-        let key = self.keystore.create_crypto_key(request.get_ref().master_key_id.clone());
+        let key = self
+            .keystore
+            .create_crypto_key(request.get_ref().master_key_id.clone());
 
-        let reply = CreateMasterKeyResponse { master_key: Some(MasterKey{
-            name: key.name,
-            ..Default::default()
-        }) };
+        let reply = CreateMasterKeyResponse {
+            master_key: Some(MasterKey {
+                name: key.name,
+                ..Default::default()
+            }),
+        };
 
         Ok(tonic::Response::new(reply))
     }
@@ -27,7 +42,9 @@ impl MasterKeyManagementService for API  {
         &self,
         _request: tonic::Request<ListMasterKeysRequest>,
     ) -> Result<tonic::Response<ListMasterKeysResponse>, tonic::Status> {
-        let reply = ListMasterKeysResponse { master_keys: vec![MasterKey::default()] };
+        let reply = ListMasterKeysResponse {
+            master_keys: vec![MasterKey::default()],
+        };
 
         Ok(tonic::Response::new(reply))
     }
@@ -36,7 +53,9 @@ impl MasterKeyManagementService for API  {
         &self,
         _request: tonic::Request<ListMasterKeyVersionsRequest>,
     ) -> Result<tonic::Response<ListMasterKeyVersionsResponse>, tonic::Status> {
-        let reply = ListMasterKeyVersionsResponse { master_key_versions: vec![MasterKeyVersion::default()] };
+        let reply = ListMasterKeyVersionsResponse {
+            master_key_versions: vec![MasterKeyVersion::default()],
+        };
 
         Ok(tonic::Response::new(reply))
     }
@@ -45,7 +64,9 @@ impl MasterKeyManagementService for API  {
         &self,
         _request: tonic::Request<CreateMasterKeyVersionRequest>,
     ) -> Result<tonic::Response<CreateMasterKeyVersionResponse>, tonic::Status> {
-        let reply = CreateMasterKeyVersionResponse { master_key_version: Some(MasterKeyVersion::default()) };
+        let reply = CreateMasterKeyVersionResponse {
+            master_key_version: Some(MasterKeyVersion::default()),
+        };
 
         Ok(tonic::Response::new(reply))
     }
@@ -54,7 +75,9 @@ impl MasterKeyManagementService for API  {
         &self,
         _request: tonic::Request<DestroyMasterKeyVersionRequest>,
     ) -> Result<tonic::Response<DestroyMasterKeyVersionResponse>, tonic::Status> {
-        let reply = DestroyMasterKeyVersionResponse { master_key_version: Some(MasterKeyVersion::default())};
+        let reply = DestroyMasterKeyVersionResponse {
+            master_key_version: Some(MasterKeyVersion::default()),
+        };
 
         Ok(tonic::Response::new(reply))
     }
@@ -63,7 +86,10 @@ impl MasterKeyManagementService for API  {
         &self,
         request: tonic::Request<EncryptRequest>,
     ) -> Result<tonic::Response<EncryptResponse>, tonic::Status> {
-        let encrypted_value = self.keystore.encrypt(request.get_ref().master_key_id.clone(), request.get_ref().plaintext.clone().to_vec());
+        let encrypted_value = self.keystore.encrypt(
+            request.get_ref().master_key_id.clone(),
+            request.get_ref().plaintext.clone().to_vec(),
+        );
 
         let reply = crate::valv::keystore::v1::EncryptResponse {
             name: request.get_ref().master_key_id.clone(),
@@ -77,21 +103,26 @@ impl MasterKeyManagementService for API  {
         &self,
         request: tonic::Request<DecryptRequest>,
     ) -> Result<tonic::Response<DecryptResponse>, tonic::Status> {
-        let decrypted_result = self.keystore.decrypt(request.get_ref().master_key_id.clone(), request.get_ref().ciphertext.clone().to_vec());
+        let decrypted_result = self.keystore.decrypt(
+            request.get_ref().master_key_id.clone(),
+            request.get_ref().ciphertext.clone().to_vec(),
+        );
         match decrypted_result {
             Ok(decrypted_value) => {
                 let reply = DecryptResponse {
                     plaintext: decrypted_value.into(),
                 };
                 return Ok(tonic::Response::new(reply));
-            },
+            }
             Err(_) => {
-                return Err(tonic::Status::new(tonic::Code::InvalidArgument, "Invalid ciphertext"));
+                return Err(tonic::Status::new(
+                    tonic::Code::InvalidArgument,
+                    "Invalid ciphertext",
+                ));
             }
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -99,7 +130,10 @@ mod tests {
     use tonic::transport::Server;
 
     use super::*;
-    use crate::{valv::keystore::v1::master_key_management_service_client::MasterKeyManagementServiceClient, Keystore};
+    use crate::{
+        valv::keystore::v1::master_key_management_service_client::MasterKeyManagementServiceClient,
+        Keystore,
+    };
     use tokio::time::sleep;
 
     #[tokio::test]
@@ -113,17 +147,18 @@ mod tests {
         let svc = MasterKeyManagementServiceServer::new(api);
         let server_handle = tokio::spawn(Server::builder().add_service(svc).serve(addr));
 
+        // try to connect to the server
         let mut chan_is_err = false;
         for _ in 0..10 {
             let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
-            .connect()
-            .await;
-            
+                .connect()
+                .await;
+
             match channel {
                 Ok(_) => {
                     chan_is_err = true;
                     break;
-                },
+                }
                 Err(_) => sleep(Duration::from_millis(10)).await,
             }
             println!("Waiting for server to start...");
@@ -132,13 +167,13 @@ mod tests {
             panic!("Failed to connect to server");
         }
 
-         // Wait for the server to start (adjust sleep duration as needed)
+        // Wait for the server to start (adjust sleep duration as needed)
         // Create a client
         let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
             .connect()
             .await
             .expect("Failed to connect to server");
-        
+
         let mut client = MasterKeyManagementServiceClient::new(channel);
 
         // Make the gRPC call
@@ -162,7 +197,7 @@ mod tests {
         let addr = "0.0.0.0:8080".parse().unwrap();
         let keystore = Keystore::new();
         let api = API {
-            keystore: Arc::new(keystore)
+            keystore: Arc::new(keystore),
         };
         let svc = MasterKeyManagementServiceServer::new(api);
         let server_handle = tokio::spawn(Server::builder().add_service(svc).serve(addr));
@@ -170,14 +205,14 @@ mod tests {
         let mut chan_is_err = false;
         for _ in 0..10 {
             let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
-            .connect()
-            .await;
-            
+                .connect()
+                .await;
+
             match channel {
                 Ok(_) => {
                     chan_is_err = true;
                     break;
-                },
+                }
                 Err(_) => sleep(Duration::from_millis(10)).await,
             }
             println!("Waiting for server to start...");
@@ -186,13 +221,13 @@ mod tests {
             panic!("Failed to connect to server");
         }
 
-         // Wait for the server to start (adjust sleep duration as needed)
+        // Wait for the server to start (adjust sleep duration as needed)
         // Create a client
         let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
             .connect()
             .await
             .expect("Failed to connect to server");
-        
+
         let mut client = MasterKeyManagementServiceClient::new(channel);
 
         // Make the gRPC call
@@ -204,7 +239,7 @@ mod tests {
 
         // Assert the response
         assert_eq!(response.get_ref().master_key.is_some(), true);
-        
+
         // Make the gRPC call to encrypt
         let encrypt_request = tonic::Request::new(EncryptRequest {
             master_key_id: response.get_ref().master_key.as_ref().unwrap().name.clone(),
@@ -214,7 +249,10 @@ mod tests {
 
         // Assert the encrypt response
         let original_ciphertext = encrypt_response.get_ref().ciphertext.clone();
-        assert_eq!(encrypt_response.get_ref().name, response.get_ref().master_key.as_ref().unwrap().name);
+        assert_eq!(
+            encrypt_response.get_ref().name,
+            response.get_ref().master_key.as_ref().unwrap().name
+        );
         assert_eq!(original_ciphertext.len(), 60);
 
         // Make the gRPC call to decrypt with the original master key

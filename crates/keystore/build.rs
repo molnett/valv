@@ -1,6 +1,6 @@
+use std::env;
 use std::error::Error;
 use std::process::{exit, Command};
-use std::env;
 fn main() -> Result<(), Box<dyn Error>> {
     // We do not want to perform this action for a CICD release build.
     if Ok("debug".to_owned()) == env::var("PROFILE") {
