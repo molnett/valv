@@ -27,12 +27,12 @@ impl KeyManagementService for ValvAPI {
     ) -> Result<tonic::Response<google::kms::ListCryptoKeysResponse>, tonic::Status> {
         self.keystore.lock().await.list_crypto_keys();
         return Ok(tonic::Response::new(google::kms::ListCryptoKeysResponse {
-            crypto_keys: vec!(google::kms::CryptoKey {
+            crypto_keys: vec![google::kms::CryptoKey {
                 name: "test".to_string(),
                 purpose: google::kms::crypto_key::CryptoKeyPurpose::Unspecified as i32,
                 crypto_key_backend: "keystore".to_string(),
                 ..Default::default()
-            }),
+            }],
             next_page_token: "".to_string(),
             total_size: 0,
         }));
@@ -227,21 +227,26 @@ impl KeyManagementService for ValvAPI {
     ) -> Result<tonic::Response<google::kms::GenerateRandomBytesResponse>, tonic::Status> {
         unimplemented!()
     }
-} 
+}
 
 #[tokio::main]
 async fn main() {
     let addr = "[::1]:50051".parse().unwrap();
-   
-    let mut store = keystore::Keystore::new();
+
     let mut key = [0; 32];
     boring::rand::rand_bytes(&mut key).unwrap();
 
+    let mut store = keystore::Keystore::new().await;
+
     store.set_master_key(key);
-    let api = ValvAPI {keystore: Mutex::new(store)};
+    let api = ValvAPI {
+        keystore: Mutex::new(store),
+    };
 
     tonic::transport::Server::builder()
-        .add_service(google::kms::key_management_service_server::KeyManagementServiceServer::new(api))
+        .add_service(
+            google::kms::key_management_service_server::KeyManagementServiceServer::new(api),
+        )
         .serve(addr)
         .await
         .unwrap();

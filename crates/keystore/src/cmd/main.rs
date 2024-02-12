@@ -4,7 +4,7 @@ use clap::Parser;
 use keystore::{
     api,
     valv::keystore::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
-    Keystore,
+    Keystore, KeystoreAPI,
 };
 use secrecy::{ExposeSecret, Secret};
 use tonic::transport::Server;
@@ -21,13 +21,11 @@ struct Cli {
 async fn main() {
     let args = Cli::parse();
 
-    let mut keystore = Keystore::new();
+    let mut keystore = Keystore::new().await;
 
-    let master_key = Secret::new(
-        args.master_key.clone().expose_secret().clone().into_bytes()[..32]
-            .try_into()
-            .unwrap(),
-    );
+    let master_key = args.master_key.clone().expose_secret().clone().into_bytes()[..32]
+        .try_into()
+        .unwrap();
 
     keystore.set_master_key(master_key);
 

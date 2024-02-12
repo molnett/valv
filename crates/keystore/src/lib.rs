@@ -1,10 +1,14 @@
 use std::{collections::HashMap, sync::RwLock};
 
+use async_trait::async_trait;
 use boring::error::ErrorStack;
 use secrecy::{ExposeSecret, Secret};
+use serde::{Deserialize, Serialize};
+use storage::{fdb::FoundationDB, interface::KeystoreStorage};
 
 pub mod api;
 mod gen;
+mod storage;
 
 pub mod valv {
     pub mod keystore {
@@ -14,10 +18,16 @@ pub mod valv {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct CryptoKey {
     pub name: String,
-    pub encrypted_value: [u8; 44],
+    pub encrypted_value: Vec<u8>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct CryptoKeyVersion {
+    pub version: u32,
+    pub wrapped_key: Vec<u8>,
 }
 
 pub struct DecryptedKey {
@@ -26,36 +36,41 @@ pub struct DecryptedKey {
     pub iv: [u8; 12],
 }
 
+#[async_trait::async_trait]
 pub trait KeystoreAPI: Send + Sync {
     fn list_crypto_keys(&self);
-    fn create_crypto_key(&self, name: String) -> CryptoKey;
+    async fn create_crypto_key(&self, name: String) -> CryptoKey;
+    async fn get_crypto_key(&self, name: String) -> Option<CryptoKey>;
 
     fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
     fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
 }
 
 pub struct Keystore {
+    pub db: FoundationDB,
     pub keys: RwLock<HashMap<String, CryptoKey>>,
     pub decrypted_keys_cache: RwLock<HashMap<String, DecryptedKey>>,
     pub master_key: Secret<[u8; 32]>,
 }
 
 impl Keystore {
-    pub fn new() -> Keystore {
+    pub async fn new() -> Keystore {
         Keystore {
+            db: FoundationDB::new("local").await.unwrap(),
             keys: RwLock::new(HashMap::new()),
             decrypted_keys_cache: RwLock::new(HashMap::new()),
             master_key: [0; 32].into(),
         }
     }
 
-    pub fn set_master_key(&mut self, key: Secret<[u8; 32]>) {
-        self.master_key = key;
+    pub fn set_master_key(&mut self, key: [u8; 32]) {
+        self.master_key = Secret::new(key);
     }
 }
 
+#[async_trait::async_trait]
 impl KeystoreAPI for Keystore {
-    fn create_crypto_key(&self, name: String) -> CryptoKey {
+    async fn create_crypto_key(&self, name: String) -> CryptoKey {
         let mut iv = [0; 12];
         let mut key = [0; 32];
         boring::rand::rand_bytes(&mut iv).unwrap();
@@ -77,8 +92,24 @@ impl KeystoreAPI for Keystore {
         let crypto_key = CryptoKey {
             name: name.clone(),
             // IV + encrypted key
-            encrypted_value: encrypted_result,
+            encrypted_value: encrypted_result.to_vec(),
         };
+        self.db
+            .append_key_version(
+                "molnett",
+                name.clone().as_str(),
+                bincode::serialize(&crypto_key).unwrap(),
+            )
+            .await
+            .unwrap();
+        self.db
+            .update_key_metadata(
+                "molnett",
+                name.clone().as_str(),
+                bincode::serialize(&crypto_key).unwrap(),
+            )
+            .await
+            .unwrap();
         self.keys
             .write()
             .unwrap()
@@ -101,6 +132,16 @@ impl KeystoreAPI for Keystore {
 
     fn list_crypto_keys(&self) {
         println!("{:?}", self.keys.read().unwrap().keys());
+    }
+
+    async fn get_crypto_key(&self, name: String) -> Option<CryptoKey> {
+        let key = self
+            .db
+            .get_key_metadata("molnett", name.as_str())
+            .await
+            .unwrap();
+
+        key.as_ref().map(|k| bincode::deserialize(k).unwrap())
     }
 
     fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
@@ -159,5 +200,20 @@ impl KeystoreAPI for Keystore {
             &cipher,
             tag,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::KeystoreAPI;
+
+    #[tokio::test]
+    async fn test_keystore() {
+        let _guard = unsafe { foundationdb::boot() };
+
+        let keystore = super::Keystore::new().await;
+        let key = keystore.create_crypto_key("test".to_string()).await;
+        let key_metadata = keystore.get_crypto_key(key.name).await;
+        assert_eq!(key_metadata.unwrap().name, "test");
     }
 }
