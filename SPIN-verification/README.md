@@ -12,6 +12,9 @@ A DEK received is one previously encrypted by the user<br />
 **User Receive - assert(temp_e_key.version > encrypted_DEKs[temp_e_key.id-1].version)**<br />
 If the same DEK is encrypted several times, the encryption is not identical<br />
 
-**Keystore Encrypt - assert(kek_id == 1 || kek_id == 2)**<br />
+**Keystore Encrypt - assert(kek_id > 0 && kek_id <= NUM_KEKS)**<br />
 Keystore only encrypts if a valid KEK has been included in the request<br />
+
+**Keystore Decrypt - assert(KEKs[kek_id-1].version >= temp_e_key.ref_version)**<br />
+The version of the KEK used in decryption is greater or equal to the one used for encryption<br />
 
