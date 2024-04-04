@@ -338,7 +338,7 @@ proctype AccessControl()
 
     Decrypt:
 
-        idx = (user_id - 1) * 3 + 2 * (kek_id - 1) + dek_id
+        idx = (user_id - 1) * (NUM_KEKS*NUM_DEKS) + (kek_id - 1) * NUM_DEKS + dek_id
 
         if
         ::  idx >= 0 &&  idx < NUM_USERS*NUM_KEKS*NUM_DEKS ->  
