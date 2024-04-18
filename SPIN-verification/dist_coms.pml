@@ -54,12 +54,12 @@ chan db2k = [DB2K_MAX] of { mtype, int, int }	// Database -> Keystore
 chan db2u1 = [DB2U_MAX] of { mtype, bool, bool, bool }  // Database -> User 1
 chan db2u2 = [DB2U_MAX] of { mtype, bool, bool, bool }  // Database -> User 2
 
-int iteration
+int timer
 bool clear_cache
 
 init {
 
-    iteration = 0
+    timer = 0
     clear_cache = false
 
     atomic {
@@ -300,7 +300,6 @@ proctype Keystore()
         if 
         ::  atomic{ u12k?[msg, dek_id, kek_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id] ->
                 u12k?msg, dek_id, kek_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id } ->
-            // printf("KEK ID: %d\n", kek_id)
             if
             ::  msg == e_DEK || msg == re_DEK -> goto Encrypt
             ::  msg == d_DEK -> goto Decrypt
@@ -427,7 +426,7 @@ proctype Keystore()
         ::  else -> temp_e_key.id = dek_id
         fi
         
-        temp_e_key.version = iteration
+        temp_e_key.version = timer
         temp_e_key.ref_id = v_KEKs[kek_id-1].id
         temp_e_key.ref_version = v_KEKs[kek_id-1].version
 
@@ -455,16 +454,16 @@ proctype Database() {
     
     Main:
         
-        iteration++
+        timer++
 
         if  // Cache timer
-        ::  iteration%CACHE_CLEAR == 0 -> 
+        ::  timer%CACHE_CLEAR == 0 -> 
                 clear_cache = true
         ::  else -> skip
         fi
 
         if  // Rotation
-        ::  iteration%ROT_KEK_1 == 0 -> 
+        ::  timer%ROT_KEK_1 == 0 -> 
                 p_KEKs[0].version++
                 db2u1!rot_KEK, 1, 0, 0
                 // db2u2!rot_KEK, 1, 0, 0
@@ -472,7 +471,7 @@ proctype Database() {
         fi
 
         if  // Rotation
-        ::  iteration%ROT_KEK_2 == 0 -> 
+        ::  timer%ROT_KEK_2 == 0 -> 
                 p_KEKs[1].version++
                 db2u1!rot_KEK, 0, 1, 0
                 // db2u2!rot_KEK, 0, 1, 0
@@ -480,7 +479,7 @@ proctype Database() {
         fi
 
         if  // Rotation
-        ::  iteration%ROT_KEK_3 == 0 -> 
+        ::  timer%ROT_KEK_3 == 0 -> 
                 p_KEKs[2].version++
                 db2u1!rot_KEK, 0, 0, 1
                 // db2u2!rot_KEK, 0, 0, 1
@@ -504,6 +503,7 @@ proctype Database() {
         for (i in p_KEKs) {
             if 
             ::  p_KEKs[i].id == kek_id -> 
+                    timer++
                     db2k!msg, p_KEKs[i].id, p_KEKs[i].version
                     goto Main
             ::  else -> skip
