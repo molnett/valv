@@ -1,8 +1,9 @@
 # A Functional Verification of the KMS in SPIN
 Currently models user and keystore interaction where user can encrypt DEKs and request assignment of KEKs from the Keystore.
 
-Number of DEKs: 2<br />
-Number of KEKs: 2
+Number of Users: 1<br />
+Number of DEKs per user: 2<br />
+Number of KEKs: 3
 
 ## <u>List of assertions</u>
 
