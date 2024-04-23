@@ -1,22 +1,26 @@
 #define NUM_DEKS 2
-#define NUM_KEKS 3
+#define NUM_KEKS 4
 #define NUM_KEYSTORES 1
 #define NUM_USERS 1
 #define U2K_MAX 3
-#define K2U_MAX 3
-#define K2AC_MAX 3
-#define AC2K_MAX 3
+#define K2U_MAX 0
+#define K2AC_MAX 0
+#define AC2K_MAX 0
 #define K2DB_MAX 3
-#define DB2K_MAX 3
+#define DB2K_MAX 0
 #define DB2U_MAX 5
+#define ASS_MAX 2
 #define ROT_KEK_1 15000
 #define ROT_KEK_2 18000
 #define ROT_KEK_3 25000
+#define ROT_KEK_4 24000
 #define CACHE_CLEAR 4000
+#define USE_CLOCK false 
 
 typedef Key { /* Unencrypted */
     int id
     int version
+    int assigned_to
 }
 
 typedef E_Key { /* Encrypted */
@@ -32,7 +36,7 @@ mtype = { e_DEK, d_DEK, re_DEK, ass_KEK, rot_KEK, deny, ack }
 // k: Keystore
 // ac: Access Control
 
-// { message type, KEY_ID, KEK_ID, E_KEY-ID, E_KEY-VERSION, E_KEY-REF-V, USER-ID }
+// { message type, DEK_ID, KEK_ID, E_KEY-ID, E_KEY-VERSION, E_KEY-REF-V, USER-ID }
 // KEK_ID shares index to E_KEY-REF-ID in channels to reduce channel width
 chan u12k = [U2K_MAX] of { mtype, int, int, int, int, int, int }	// User 1 -> Keystore
 chan u22k = [U2K_MAX] of { mtype, int, int, int, int, int, int }	// User 2 -> Keystore
@@ -43,18 +47,18 @@ chan k2u2 = [K2U_MAX] of { mtype, int, int, int, int, int }	// Keystore -> User 
 chan k2ac = [K2AC_MAX] of { mtype, int, int }	// Keystore -> Access Control
 chan ac2k = [AC2K_MAX] of { mtype }	// Access Control -> Keystore
 
-//                  { message type, KEK_ID}
-chan k2db = [K2DB_MAX] of { mtype, int }	// Keystore -> Database
-//              { message type, id, version, rotation }
-chan db2k = [DB2K_MAX] of { mtype, int, int }	// Database -> Keystore
+//                  { message type, KEK_ID, USER_ID}
+chan k2db = [K2DB_MAX] of { mtype, int, int }	// Keystore -> Database
+//              { message type, KEK_ID, KEK_VERSION, KEK_ASS-TO }
+chan db2k = [DB2K_MAX] of { mtype, int, int, int }	// Database -> Keystore
 
 // This  channel emulates an external component notifying 
 // the user when a rotation has taken place 
-//                  { message type, kek1, kek2, kek3 }
-chan db2u1 = [DB2U_MAX] of { mtype, bool, bool, bool }  // Database -> User 1
-chan db2u2 = [DB2U_MAX] of { mtype, bool, bool, bool }  // Database -> User 2
+//                  { message type, KEK_ID }
+chan db2u1 = [DB2U_MAX] of { mtype, int }  // Database -> User 1
+chan db2u2 = [DB2U_MAX] of { mtype, int }  // Database -> User 2
 
-int timer
+int timer, rotate_1, rotate_2, rotate_3, rotate_4, commit_1, commit_2, commit_3, commit_4
 bool clear_cache
 
 init {
@@ -67,6 +71,10 @@ init {
         run Keystore()
         run Database()
         run AccessControl()
+        if
+        ::  USE_CLOCK -> run Clock()
+        ::  else -> skip
+        fi
     }
 
 }
@@ -74,7 +82,7 @@ init {
 proctype User(int id)
 {
     mtype msg
-    int temp_key, i, count
+    int temp_key, i, ass_idx, recrypt_idx
     int assigned_KEKs[NUM_KEKS], DEKs[NUM_DEKS]
     E_Key temp_e_key
     E_Key encrypted_DEKs[NUM_DEKS]
@@ -89,24 +97,16 @@ proctype User(int id)
         if
         ::  id == 1 ->
             if
-            ::  atomic{ db2u1?[msg, recrypt_1, recrypt_2, recrypt_3] -> db2u1?msg, recrypt_1, recrypt_2, recrypt_3 } ->
+            ::  atomic{ db2u1?[msg, recrypt_idx] -> db2u1?msg, recrypt_idx } ->
                     goto Recrypt
             ::  else -> skip
             fi
-        ::  id == 2 -> 
+        ::  else -> 
             if
-            ::  atomic{ db2u2?[msg, recrypt_1, recrypt_2, recrypt_3] -> db2u1?msg, recrypt_1, recrypt_2, recrypt_3 } ->
+            ::  atomic{ db2u2?[msg, recrypt_idx] -> db2u2?msg, recrypt_idx } ->
                     goto Recrypt
             ::  else -> skip
             fi
-        ::  else -> never_true = true
-        fi
-
-        assert(!never_true)
-
-        if 
-        ::  id == 1 -> assert(assigned_KEKs[2] == 0)
-        ::  id == 2 -> assert(assigned_KEKs[0] == 0)
         fi
         
         do
@@ -117,23 +117,44 @@ proctype User(int id)
 
     Encrypt:
 
-        do
-        ::  u12k!e_DEK, DEKs[0], assigned_KEKs[0], -1, -1, -1, id -> break
-        ::  u12k!e_DEK, DEKs[0], assigned_KEKs[1], -1, -1, -1, id -> break
-        ::  u12k!e_DEK, DEKs[1], assigned_KEKs[0], -1, -1, -1, id -> break
-        ::  u12k!e_DEK, DEKs[1], assigned_KEKs[1], -1, -1, -1, id -> break
-        od
+        if
+        ::  id == 1 ->
+            do
+            ::  u12k!e_DEK, DEKs[0], assigned_KEKs[0], -1, -1, -1, id -> break
+            ::  u12k!e_DEK, DEKs[0], assigned_KEKs[1], -1, -1, -1, id -> break
+            ::  u12k!e_DEK, DEKs[1], assigned_KEKs[0], -1, -1, -1, id -> break
+            ::  u12k!e_DEK, DEKs[1], assigned_KEKs[1], -1, -1, -1, id -> break
+            od
+        ::  else ->
+            do
+            ::  u22k!e_DEK, DEKs[0], assigned_KEKs[0], -1, -1, -1, id -> break
+            ::  u22k!e_DEK, DEKs[0], assigned_KEKs[1], -1, -1, -1, id -> break
+            ::  u22k!e_DEK, DEKs[1], assigned_KEKs[0], -1, -1, -1, id -> break
+            ::  u22k!e_DEK, DEKs[1], assigned_KEKs[1], -1, -1, -1, id -> break
+            od
+        fi
 
         goto Receive
     
     Decrypt:
-
+        
         if
-        ::  encrypted_DEKs[0].id != 0 -> 
-                u12k!d_DEK, -1, encrypted_DEKs[0].ref_id, encrypted_DEKs[0].id, encrypted_DEKs[0].version, encrypted_DEKs[0].ref_version, id
-        ::  encrypted_DEKs[1].id != 0 -> 
-                u12k!d_DEK, -1, encrypted_DEKs[1].ref_id, encrypted_DEKs[1].id, encrypted_DEKs[1].version, encrypted_DEKs[1].ref_version, id
-        ::  else -> goto Select_state 
+        ::  id == 1 ->
+            if
+            ::  encrypted_DEKs[0].id != 0 -> 
+                    u12k!d_DEK, -1, encrypted_DEKs[0].ref_id, encrypted_DEKs[0].id, encrypted_DEKs[0].version, encrypted_DEKs[0].ref_version, id
+            ::  encrypted_DEKs[1].id != 0 -> 
+                    u12k!d_DEK, -1, encrypted_DEKs[1].ref_id, encrypted_DEKs[1].id, encrypted_DEKs[1].version, encrypted_DEKs[1].ref_version, id
+            ::  else -> goto Select_state 
+            fi
+        ::  else ->
+            if
+            ::  encrypted_DEKs[0].id != 0 -> 
+                    u22k!d_DEK, -1, encrypted_DEKs[0].ref_id, encrypted_DEKs[0].id, encrypted_DEKs[0].version, encrypted_DEKs[0].ref_version, id
+            ::  encrypted_DEKs[1].id != 0 -> 
+                    u22k!d_DEK, -1, encrypted_DEKs[1].ref_id, encrypted_DEKs[1].id, encrypted_DEKs[1].version, encrypted_DEKs[1].ref_version, id
+            ::  else -> goto Select_state 
+            fi
         fi
 
         goto Receive
@@ -226,17 +247,9 @@ proctype User(int id)
 
     Request_KEK:
        
-        if
-        ::  assigned_KEKs[0] == 0 && id == 1 ->
-                u12k!ass_KEK, -1, id, -1, -1, -1, id
-        ::  assigned_KEKs[1] == 0 ->
-            if
-            :: id == 1 -> u12k!ass_KEK, -1, 2, -1, -1, -1, id
-            :: id == 2 -> u22k!ass_KEK, -1, 2, -1, -1, -1, id
-            fi
-        ::  assigned_KEKs[2] == 0 && id == 2 ->
-                u22k!ass_KEK, -1, 3, -1, -1, -1, id
-        ::  else -> goto Select_state
+        if  
+        ::  id == 1 -> u12k!ass_KEK, -1, -1, -1, -1, -1, id
+        ::  else -> u22k!ass_KEK, -1, -1, -1, -1, -1, id
         fi
 
         goto Receive
@@ -253,7 +266,8 @@ proctype User(int id)
         if
         ::  msg == ass_KEK -> 
                 // KEK.id is stored in temp_e_key.ref_id to simplify channel operation  
-                assigned_KEKs[temp_e_key.ref_id-1] = temp_e_key.ref_id 
+                assigned_KEKs[ass_idx] = temp_e_key.ref_id 
+                ass_idx++
         ::  msg == d_DEK ->
                 assert(temp_key == DEKs[temp_key-1])
         ::  msg == deny -> skip
@@ -271,15 +285,13 @@ proctype User(int id)
 proctype Keystore()
 {
     mtype msg
-	int dek_id, kek_id, i, user_id, id, version, caser, count
-    bool valid
+	int dek_id, kek_id, kek_ref, i, user_id, id, version, is_case, kek_idx, assigned_to
+    bool valid, received
 
     Key temp_key
     E_Key temp_e_key
 
     Key v_KEKs[NUM_KEKS]
-
-    
 
     Select_state:
 
@@ -287,7 +299,9 @@ proctype Keystore()
         ::  clear_cache -> 
                 i = 0
                 for (i in v_KEKs) {
-                    v_KEKs[i].id = 0 -> v_KEKs[i].version = 0
+                    v_KEKs[i].id = 0 
+                    v_KEKs[i].version = 0
+                    v_KEKs[i].assigned_to = 0
                 }
             clear_cache = false
         ::  else -> skip
@@ -297,9 +311,22 @@ proctype Keystore()
 
     Receive:
 
+        received = false
+
         if 
-        ::  atomic{ u12k?[msg, dek_id, kek_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id] ->
-                u12k?msg, dek_id, kek_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id } ->
+        ::  atomic{ u12k?[msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id] ->
+                u12k?msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id } ->
+                received = true
+                kek_id = kek_ref-100
+        ::  atomic{ u22k?[msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id] ->
+                u22k?msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id } ->
+                received = true
+                kek_id = kek_ref-100
+        ::  else -> skip
+        fi
+
+        if
+        ::  received ->
             if
             ::  msg == e_DEK || msg == re_DEK -> goto Encrypt
             ::  msg == d_DEK -> goto Decrypt
@@ -313,7 +340,17 @@ proctype Keystore()
 
     Assign_KEK: 
 
-        k2ac!msg, kek_id, user_id
+        if 
+        ::  v_KEKs[kek_idx].id == 0 ->
+                k2db!ass_KEK, kek_idx+1, user_id
+                db2k?msg, id, version, assigned_to
+                v_KEKs[kek_idx].id = id
+                v_KEKs[kek_idx].version = version
+                v_KEKs[kek_idx].assigned_to = assigned_to
+                k2ac!msg, id, user_id
+        ::  else -> k2ac!msg, v_KEKs[kek_idx], user_id
+        fi
+    
         ac2k?msg
         
         if
@@ -321,16 +358,13 @@ proctype Keystore()
         ::  else -> skip
         fi
 
-        if 
-        ::  v_KEKs[kek_id-1].id == 0 ->
-                k2db!e_DEK, kek_id
-                db2k?msg, id, version
-                v_KEKs[kek_id-1].id = id
-                v_KEKs[kek_id-1].version = version
-        ::  else -> skip
+
+        if
+        ::  user_id == 1 -> k2u1!ass_KEK, -1, v_KEKs[kek_idx].id+100, -1, -1, -1
+        ::  else -> k2u2!ass_KEK, -1, v_KEKs[kek_idx].id+100, -1, -1, -1
         fi
 
-        k2u1!ass_KEK, -1, v_KEKs[kek_id-1].id, -1, -1, -1
+        kek_idx++
 
         goto Select_state
 
@@ -348,16 +382,16 @@ proctype Keystore()
 
         d_step {
             if 
-            ::  v_KEKs[kek_id-1].id == 0 -> caser = 1
-            ::  v_KEKs[kek_id-1].id == kek_id -> caser = 2
-            ::  else -> caser = 0 -> valid = false
+            ::  v_KEKs[kek_id-1].id == 0 -> is_case = 1
+            ::  v_KEKs[kek_id-1].id == kek_id -> is_case = 2
+            ::  else -> is_case = 0 -> valid = false
             fi
         }
 
         if 
-        ::  caser == 1 -> 
-                k2db!e_DEK, kek_id
-                db2k?msg, id, version
+        ::  is_case == 1 -> 
+                k2db!d_DEK, kek_id, user_id
+                db2k?msg, id, version, assigned_to
 
                 if
                 ::  msg != deny -> 
@@ -369,13 +403,13 @@ proctype Keystore()
                         fi
                 ::  else -> valid = false
                 fi
-        ::  caser == 2
+        ::  is_case == 2
             if
             ::  v_KEKs[kek_id-1].version >= temp_e_key.ref_version -> 
                     skip
             ::  else -> 
-                    k2db!e_DEK, kek_id
-                    db2k?msg, id, version
+                    k2db!d_DEK, kek_id, user_id
+                    db2k?msg, id, version, assigned_to
                     
                     v_KEKs[id-1].version = id
                     v_KEKs[id-1].version = version
@@ -389,11 +423,9 @@ proctype Keystore()
         fi
 
         if
-        ::  valid -> skip
+        ::  valid -> assert(v_KEKs[kek_id-1].version >= temp_e_key.ref_version)
         ::  else -> goto Deny_request
         fi
-
-        assert(v_KEKs[kek_id-1].version >= temp_e_key.ref_version)
 
         k2u1!d_DEK, temp_e_key.id, -1, -1, -1, -1
 
@@ -409,15 +441,17 @@ proctype Keystore()
         ::  else -> skip
         fi
 
-        k2db!e_DEK, kek_id
-        db2k?msg, id, version
+        k2db!e_DEK, kek_id, user_id
+        db2k?msg, id, version, assigned_to
 
         if
         ::  msg != deny -> 
                 v_KEKs[id-1].id = id
                 v_KEKs[id-1].version = version
+                v_KEKs[id-1].assigned_to = assigned_to
         ::  else -> goto Deny_request
         fi
+        
         assert(kek_id > 0 && kek_id <= NUM_KEKS)
 
         if 
@@ -427,7 +461,7 @@ proctype Keystore()
         fi
         
         temp_e_key.version = timer
-        temp_e_key.ref_id = v_KEKs[kek_id-1].id
+        temp_e_key.ref_id = v_KEKs[kek_id-1].id+100
         temp_e_key.ref_version = v_KEKs[kek_id-1].version
 
         k2u1!e_DEK, -1, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version,  temp_e_key.ref_version
@@ -441,6 +475,15 @@ proctype Keystore()
         goto Select_state
 }
 
+/**
+    In this model, the Database contains a timer that acts as a clock
+    that sends signals to users when rotation has been executed. 
+    Rotation is not time-sensitive such that it is affected by
+    distributed clock-sync issues, so it could also be seen as a tenant 
+    quering a clock to see if the scheduled rotation that could be part 
+    of the metadata in the KEK information available to the tenant has 
+    taken place.  
+ */
 proctype Database() {
 
     mtype msg
@@ -454,35 +497,82 @@ proctype Database() {
     
     Main:
         
-        timer++
+        if
+        ::  !USE_CLOCK -> timer++
+        ::  else -> skip
+        fi
 
         if  // Cache timer
-        ::  timer%CACHE_CLEAR == 0 -> 
+        ::  !USE_CLOCK && timer%CACHE_CLEAR == 0 -> 
                 clear_cache = true
         ::  else -> skip
         fi
 
-        if  // Rotation
-        ::  timer%ROT_KEK_1 == 0 -> 
+        if  // Rotation 1
+        ::  !USE_CLOCK && timer%ROT_KEK_1 == 0 ->
                 p_KEKs[0].version++
-                db2u1!rot_KEK, 1, 0, 0
-                // db2u2!rot_KEK, 1, 0, 0
+
+                if
+                ::  p_KEKs[0].assigned_to == 1 ->
+                        db2u1!rot_KEK, p_KEKs[0].id+100
+                ::  else -> 
+                        db2u2!rot_KEK, p_KEKs[0].id+100
+                fi
+        ::  USE_CLOCK && rotate_1 > 0 -> 
+                p_KEKs[0].version++
+                rotate_1--
+                commit_1++
         ::  else -> skip
         fi
 
-        if  // Rotation
-        ::  timer%ROT_KEK_2 == 0 -> 
+        if  // Rotation 2
+        ::  !USE_CLOCK && timer%ROT_KEK_2 == 0 ->
                 p_KEKs[1].version++
-                db2u1!rot_KEK, 0, 1, 0
-                // db2u2!rot_KEK, 0, 1, 0
+
+                if
+                ::  p_KEKs[1].assigned_to == 1 ->
+                        db2u1!rot_KEK, p_KEKs[1].id+100
+                ::  else -> 
+                        db2u2!rot_KEK, p_KEKs[1].id+100
+                fi
+        ::  USE_CLOCK && rotate_2 > 0 -> 
+                p_KEKs[1].version++
+                rotate_2-- 
+                commit_2++
         ::  else -> skip
         fi
 
-        if  // Rotation
-        ::  timer%ROT_KEK_3 == 0 -> 
+        if  // Rotation 3
+        ::  !USE_CLOCK && timer%ROT_KEK_3 == 0 ->
                 p_KEKs[2].version++
-                db2u1!rot_KEK, 0, 0, 1
-                // db2u2!rot_KEK, 0, 0, 1
+
+                if
+                ::  p_KEKs[2].assigned_to == 1 ->
+                        db2u1!rot_KEK, p_KEKs[2].id+100
+                ::  else -> 
+                        db2u2!rot_KEK, p_KEKs[2].id+100
+                fi
+        ::  USE_CLOCK && rotate_3 > 0 -> 
+                p_KEKs[2].version++
+                rotate_3-- 
+                commit_3++
+        ::  else -> skip
+        fi
+
+        if  // Rotation 4
+        ::  !USE_CLOCK && timer%ROT_KEK_4 == 0 ->
+                p_KEKs[3].version++
+
+                if
+                ::  p_KEKs[3].assigned_to == 1 ->
+                        db2u1!rot_KEK, p_KEKs[3].id+100
+                ::  else -> 
+                        db2u2!rot_KEK, p_KEKs[3].id+100
+                fi
+        ::  USE_CLOCK && rotate_4 > 0 -> 
+                p_KEKs[3].version++
+                rotate_4--
+                commit_4++
         ::  else -> skip
         fi
 
@@ -503,9 +593,14 @@ proctype Database() {
         for (i in p_KEKs) {
             if 
             ::  p_KEKs[i].id == kek_id -> 
-                    timer++
-                    db2k!msg, p_KEKs[i].id, p_KEKs[i].version
+                    if
+                    ::  !USE_CLOCK -> timer++
+                    ::  else -> skip
+                    fi
+                    db2k!msg, p_KEKs[i].id, p_KEKs[i].version, p_KEKs[i].assigned_to
+
                     goto Main
+
             ::  else -> skip
             fi
         }
@@ -514,7 +609,7 @@ proctype Database() {
 
     Deny_request:
         
-        db2k!deny, -1, -1
+        db2k!deny, -1, -1, -1
 
         goto Main
 
@@ -536,7 +631,7 @@ proctype Database() {
 proctype AccessControl()
 {
     mtype msg
-    int kek_id, user_id, idx
+    int kek_id, user_id, idx, i, num_assigned
     
     int usr_x_kek[NUM_USERS*NUM_KEKS]
     
@@ -546,7 +641,7 @@ proctype AccessControl()
 
         if
         ::  msg == ass_KEK -> goto Assign_KEK
-        ::  msg == d_DEK || msg == e_DEK || msg == rot_KEK -> goto Authenticate_user
+        ::  msg == d_DEK || msg == e_DEK || msg == rot_KEK -> goto Authorize
         ::  else -> goto Deny_request
         fi
 
@@ -554,20 +649,36 @@ proctype AccessControl()
     
     Assign_KEK:
         
+        num_assigned = 0
+        i = 0
+
+        do
+        ::  i < NUM_KEKS -> i++
+            if
+            ::  usr_x_kek[(user_id-1)*NUM_KEKS+i-1] > 0 -> num_assigned++
+            ::  else -> skip
+            fi
+
+            if
+            ::  num_assigned > ASS_MAX -> goto Deny_request
+            ::  else -> skip
+            fi
+        ::  else -> break
+        od
+
         idx = (user_id - 1) * NUM_KEKS + (kek_id - 1) 
 
-        if 
-        ::  usr_x_kek[idx] < 1 -> 
-                usr_x_kek[idx] = 1
-        ::  else -> goto Deny_request
+        if
+        ::  usr_x_kek[idx] > 1 -> goto Deny_request
+        ::  else -> usr_x_kek[idx] = 1
         fi
 
         goto Ack_request
 
-    Authenticate_user:
+    Authorize:
 
         idx = (user_id - 1) * NUM_KEKS + (kek_id - 1)
-
+        
         if
         ::  idx >= 0 && idx < NUM_USERS*NUM_KEKS ->  
             if
@@ -591,4 +702,47 @@ proctype AccessControl()
 
         goto Select_state
 
+}
+
+/**
+    Alternative component instead of the timer 
+    in the Database component
+ */
+proctype Clock() {
+    
+    Main:
+    
+        timer++
+
+        if  // Cache timer
+        ::  timer%CACHE_CLEAR == 0 -> 
+                clear_cache = true
+        ::  else -> skip
+        fi
+
+        if  // Rotation
+        ::  timer%ROT_KEK_1 == 0 -> 
+                rotate_1++
+        ::  else -> skip
+        fi
+
+        if  // Rotation
+        ::  timer%ROT_KEK_2 == 0 -> 
+                rotate_2++
+        ::  else -> skip
+        fi
+
+        if  // Rotation
+        ::  timer%ROT_KEK_3 == 0 -> 
+                rotate_3++
+        ::  else -> skip
+        fi
+
+        if  // Rotation
+        ::  timer%ROT_KEK_3 == 0 -> 
+                rotate_4++
+        ::  else -> skip
+        fi
+
+    goto Main
 }
