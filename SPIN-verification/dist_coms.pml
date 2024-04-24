@@ -1,7 +1,7 @@
 #define NUM_DEKS 2
 #define NUM_KEKS 4
 #define NUM_KEYSTORES 1
-#define NUM_USERS 1
+#define NUM_TENANTS 1
 #define U2K_MAX 3
 #define K2U_MAX 0
 #define K2AC_MAX 0
@@ -16,6 +16,8 @@
 #define ROT_KEK_4 24000
 #define CACHE_CLEAR 4000
 #define USE_CLOCK false 
+#define SAME_TNT_ID false
+#define SAME_KEK_ASSIGNED false
 
 typedef Key { /* Unencrypted */
     int id
@@ -32,31 +34,31 @@ typedef E_Key { /* Encrypted */
 
 mtype = { e_DEK, d_DEK, re_DEK, ass_KEK, rot_KEK, deny, ack }
 
-// u: User
+// u: Tenant
 // k: Keystore
 // ac: Access Control
 
-// { message type, DEK_ID, KEK_ID, E_KEY-ID, E_KEY-VERSION, E_KEY-REF-V, USER-ID }
+// { message type, DEK_ID, KEK_ID, E_KEY-ID, E_KEY-VERSION, E_KEY-REF-V, TENANT-ID }
 // KEK_ID shares index to E_KEY-REF-ID in channels to reduce channel width
-chan u12k = [U2K_MAX] of { mtype, int, int, int, int, int, int }	// User 1 -> Keystore
-chan u22k = [U2K_MAX] of { mtype, int, int, int, int, int, int }	// User 2 -> Keystore
-chan k2u1 = [K2U_MAX] of { mtype, int, int, int, int, int }	// Keystore -> User 1
-chan k2u2 = [K2U_MAX] of { mtype, int, int, int, int, int }	// Keystore -> User 2
+chan u12k = [U2K_MAX] of { mtype, int, int, int, int, int, int }	// Tenant 1 -> Keystore
+chan u22k = [U2K_MAX] of { mtype, int, int, int, int, int, int }	// Tenant 2 -> Keystore
+chan k2u1 = [K2U_MAX] of { mtype, int, int, int, int, int }	// Keystore -> Tenant 1
+chan k2u2 = [K2U_MAX] of { mtype, int, int, int, int, int }	// Keystore -> Tenant 2
 
-//                  { message type, KEK_ID, USER_ID}
+//                  { message type, KEK_ID, tenant_id}
 chan k2ac = [K2AC_MAX] of { mtype, int, int }	// Keystore -> Access Control
 chan ac2k = [AC2K_MAX] of { mtype }	// Access Control -> Keystore
 
-//                  { message type, KEK_ID, USER_ID}
+//                  { message type, KEK_ID, tenant_id}
 chan k2db = [K2DB_MAX] of { mtype, int, int }	// Keystore -> Database
 //              { message type, KEK_ID, KEK_VERSION, KEK_ASS-TO }
 chan db2k = [DB2K_MAX] of { mtype, int, int, int }	// Database -> Keystore
 
 // This  channel emulates an external component notifying 
-// the user when a rotation has taken place 
+// the tenant when a rotation has taken place 
 //                  { message type, KEK_ID }
-chan db2u1 = [DB2U_MAX] of { mtype, int }  // Database -> User 1
-chan db2u2 = [DB2U_MAX] of { mtype, int }  // Database -> User 2
+chan db2u1 = [DB2U_MAX] of { mtype, int }  // Database -> Tenant 1
+chan db2u2 = [DB2U_MAX] of { mtype, int }  // Database -> Tenant 2
 
 int timer, rotate_1, rotate_2, rotate_3, rotate_4, commit_1, commit_2, commit_3, commit_4
 bool clear_cache
@@ -67,7 +69,7 @@ init {
     clear_cache = false
 
     atomic {
-        run User(1)
+        run Tenant(1)
         run Keystore()
         run Database()
         run AccessControl()
@@ -79,7 +81,7 @@ init {
 
 }
 
-proctype User(int id)
+proctype Tenant(int id)
 {
     mtype msg
     int temp_key, i, ass_idx, recrypt_idx
@@ -285,7 +287,7 @@ proctype User(int id)
 proctype Keystore()
 {
     mtype msg
-	int dek_id, kek_id, kek_ref, i, user_id, id, version, is_case, kek_idx, assigned_to
+	int dek_id, kek_id, kek_ref, i, tenant_id, id, version, is_case, kek_idx, assigned_to
     bool valid, received
 
     Key temp_key
@@ -314,12 +316,12 @@ proctype Keystore()
         received = false
 
         if 
-        ::  atomic{ u12k?[msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id] ->
-                u12k?msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id } ->
+        ::  atomic{ u12k?[msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, tenant_id] ->
+                u12k?msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, tenant_id } ->
                 received = true
                 kek_id = kek_ref-100
-        ::  atomic{ u22k?[msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id] ->
-                u22k?msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, user_id } ->
+        ::  atomic{ u22k?[msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, tenant_id] ->
+                u22k?msg, dek_id, kek_ref, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version, tenant_id } ->
                 received = true
                 kek_id = kek_ref-100
         ::  else -> skip
@@ -342,13 +344,13 @@ proctype Keystore()
 
         if 
         ::  v_KEKs[kek_idx].id == 0 ->
-                k2db!ass_KEK, kek_idx+1, user_id
+                k2db!ass_KEK, kek_idx+1, tenant_id
                 db2k?msg, id, version, assigned_to
                 v_KEKs[kek_idx].id = id
                 v_KEKs[kek_idx].version = version
                 v_KEKs[kek_idx].assigned_to = assigned_to
-                k2ac!msg, id, user_id
-        ::  else -> k2ac!msg, v_KEKs[kek_idx], user_id
+                k2ac!msg, id, tenant_id
+        ::  else -> k2ac!msg, v_KEKs[kek_idx], tenant_id
         fi
     
         ac2k?msg
@@ -360,7 +362,7 @@ proctype Keystore()
 
 
         if
-        ::  user_id == 1 -> k2u1!ass_KEK, -1, v_KEKs[kek_idx].id+100, -1, -1, -1
+        ::  tenant_id == 1 -> k2u1!ass_KEK, -1, v_KEKs[kek_idx].id+100, -1, -1, -1
         ::  else -> k2u2!ass_KEK, -1, v_KEKs[kek_idx].id+100, -1, -1, -1
         fi
 
@@ -372,7 +374,7 @@ proctype Keystore()
 
         valid = true
 
-        k2ac!msg, kek_id, user_id
+        k2ac!msg, kek_id, tenant_id
         ac2k?msg 
         
         if
@@ -390,7 +392,7 @@ proctype Keystore()
 
         if 
         ::  is_case == 1 -> 
-                k2db!d_DEK, kek_id, user_id
+                k2db!d_DEK, kek_id, tenant_id
                 db2k?msg, id, version, assigned_to
 
                 if
@@ -408,7 +410,7 @@ proctype Keystore()
             ::  v_KEKs[kek_id-1].version >= temp_e_key.ref_version -> 
                     skip
             ::  else -> 
-                    k2db!d_DEK, kek_id, user_id
+                    k2db!d_DEK, kek_id, tenant_id
                     db2k?msg, id, version, assigned_to
                     
                     v_KEKs[id-1].version = id
@@ -433,7 +435,7 @@ proctype Keystore()
 
     Encrypt:
 
-        k2ac!msg, kek_id, user_id
+        k2ac!msg, kek_id, tenant_id
         ac2k?msg
         
         if
@@ -441,7 +443,7 @@ proctype Keystore()
         ::  else -> skip
         fi
 
-        k2db!e_DEK, kek_id, user_id
+        k2db!e_DEK, kek_id, tenant_id
         db2k?msg, id, version, assigned_to
 
         if
@@ -477,7 +479,7 @@ proctype Keystore()
 
 /**
     In this model, the Database contains a timer that acts as a clock
-    that sends signals to users when rotation has been executed. 
+    that sends signals to tenants when rotation has been executed. 
     Rotation is not time-sensitive such that it is affected by
     distributed clock-sync issues, so it could also be seen as a tenant 
     quering a clock to see if the scheduled rotation that could be part 
@@ -487,7 +489,7 @@ proctype Keystore()
 proctype Database() {
 
     mtype msg
-	int dek_id, kek_id, i, user_id
+	int dek_id, kek_id, i, tenant_id
     Key p_KEKs[NUM_KEKS]
 
     for (i in p_KEKs) {
@@ -619,7 +621,7 @@ proctype Database() {
 /*
     ## Access Control Info ##
 
-    user_x_kek - Relations between users and KEKs
+    tenant_x_kek - Relations between tenants and KEKs
 
     0 - No relation
     1 - KEK relation exists
@@ -631,13 +633,13 @@ proctype Database() {
 proctype AccessControl()
 {
     mtype msg
-    int kek_id, user_id, idx, i, num_assigned
+    int kek_id, tenant_id, idx, i, num_assigned
     
-    int usr_x_kek[NUM_USERS*NUM_KEKS]
+    int tnt_x_kek[NUM_TENANTS*NUM_KEKS]
     
     Select_state:
         
-        k2ac?msg, kek_id, user_id
+        k2ac?msg, kek_id, tenant_id
 
         if
         ::  msg == ass_KEK -> goto Assign_KEK
@@ -655,7 +657,7 @@ proctype AccessControl()
         do
         ::  i < NUM_KEKS -> i++
             if
-            ::  usr_x_kek[(user_id-1)*NUM_KEKS+i-1] > 0 -> num_assigned++
+            ::  tnt_x_kek[(tenant_id-1)*NUM_KEKS+i-1] > 0 -> num_assigned++
             ::  else -> skip
             fi
 
@@ -666,23 +668,23 @@ proctype AccessControl()
         ::  else -> break
         od
 
-        idx = (user_id - 1) * NUM_KEKS + (kek_id - 1) 
+        idx = (tenant_id - 1) * NUM_KEKS + (kek_id - 1) 
 
         if
-        ::  usr_x_kek[idx] > 1 -> goto Deny_request
-        ::  else -> usr_x_kek[idx] = 1
+        ::  tnt_x_kek[idx] > 1 -> goto Deny_request
+        ::  else -> tnt_x_kek[idx] = 1
         fi
 
         goto Ack_request
 
     Authorize:
 
-        idx = (user_id - 1) * NUM_KEKS + (kek_id - 1)
+        idx = (tenant_id - 1) * NUM_KEKS + (kek_id - 1)
         
         if
-        ::  idx >= 0 && idx < NUM_USERS*NUM_KEKS ->  
+        ::  idx >= 0 && idx < NUM_TENANTS*NUM_KEKS ->  
             if
-            ::  usr_x_kek[idx] < 1 -> goto Deny_request
+            ::  tnt_x_kek[idx] < 1 -> goto Deny_request
             ::  else -> skip
             fi
         ::  else -> goto Deny_request
