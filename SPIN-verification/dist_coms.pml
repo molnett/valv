@@ -99,7 +99,7 @@ proctype Tenant(int id)
     bool sent_1, sent_2
 
     for (i : 0 .. NUM_DEKS-1) {
-        DEKs[i] = i + 1 + NUM_DEKS*(_pid-1)
+        DEKs[i] = i + 1 + NUM_DEKS*(id-1)
     }
 
     Select_state: 
@@ -110,7 +110,7 @@ proctype Tenant(int id)
         fi
         // Receive rotation update ping
         if
-        ::  _pid == 1 ->
+        ::  id == 1 ->
             if
             ::  atomic{ db2t1?[msg, recrypt_idx] -> db2t1?msg, recrypt_idx } ->
                     goto Recrypt
@@ -127,7 +127,7 @@ proctype Tenant(int id)
 
         // Receive from tenant 1 
         if
-        ::  _pid == 2 -> 
+        ::  id == 2 -> 
             if
             ::  atomic{ t12t2?[msg, temp_e_key.id, temp_e_key.version, temp_e_key.ref_id, temp_e_key.ref_version, grant] ->
                     t12t2?msg, temp_e_key.id, temp_e_key.version, temp_e_key.ref_id, temp_e_key.ref_version, grant } ->
@@ -144,7 +144,7 @@ proctype Tenant(int id)
         // Main selection loop
         do
         ::  if
-            ::  _pid == 1 && !(sent_1 && sent_2) && (encrypted_DEKs[0].id != 0 || encrypted_DEKs[1].id != 0) -> 
+            ::  id == 1 && !(sent_1 && sent_2) && (encrypted_DEKs[0].id != 0 || encrypted_DEKs[1].id != 0) -> 
                     goto Send_to_tenant  
             ::  else -> skip
             fi
@@ -156,7 +156,7 @@ proctype Tenant(int id)
     Encrypt:
 
         if
-        ::  _pid == 1 ->
+        ::  id == 1 ->
             do
             ::  t12k!e_DEK, DEKs[0], assigned_KEKs[0], -1, -1, -1, id -> break
             ::  t12k!e_DEK, DEKs[0], assigned_KEKs[1], -1, -1, -1, id -> break
@@ -177,7 +177,7 @@ proctype Tenant(int id)
     Decrypt:
         
         if
-        ::  _pid == 1 ->
+        ::  id == 1 ->
             if
             ::  encrypted_DEKs[0].id != 0 -> 
                     t12k!d_DEK, -1, encrypted_DEKs[0].ref_id, encrypted_DEKs[0].id, encrypted_DEKs[0].version, encrypted_DEKs[0].ref_version, id
@@ -208,7 +208,7 @@ proctype Tenant(int id)
             if 
             ::  encrypted_DEKs[i].ref_id == recrypt_idx -> 
                 if  // Send and Receive
-                ::  _pid == 1 -> 
+                ::  id == 1 -> 
                         t12k!re_DEK, -1, encrypted_DEKs[i].ref_id, encrypted_DEKs[i].id, encrypted_DEKs[i].version, encrypted_DEKs[i].ref_version, id
                         k2t1?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
                 ::  else -> 
@@ -237,7 +237,7 @@ proctype Tenant(int id)
     Request_KEK:
        
         if  
-        ::  _pid == 1 -> t12k!ass_KEK, -1, -1, -1, -1, -1, id
+        ::  id == 1 -> t12k!ass_KEK, -1, -1, -1, -1, -1, id
         ::  else -> t22k!ass_KEK, -1, -1, -1, -1, -1, id
         fi
 
@@ -260,7 +260,7 @@ proctype Tenant(int id)
     Receive:
 
         if
-        ::  _pid == 1 ->
+        ::  id == 1 ->
                 k2t1?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
         ::  else ->
                 k2t2?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
