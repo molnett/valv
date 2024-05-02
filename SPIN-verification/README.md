@@ -1,21 +1,15 @@
 # A Functional Verification of the KMS in SPIN
-Currently models user and keystore interaction where user can encrypt DEKs and request assignment of KEKs from the Keystore.
+Currently models tenant and keystore interaction where 2 tenants can encrypt DEKs and request assignment of KEKs from the Keystore. <br/>
 
-Number of Users: 1<br />
-Number of DEKs per user: 2<br />
-Number of KEKs: 3
+When Tenant 1 has encrypted a DEK, it is sent to Tenant 2 together with a *grant* token. Tenant 2 will store encrypted DEKs from Tenant 1 and send them for decryption with the token *grant*. The token is controlled with constants **GRANT** and **VALID_GRANT**. Only when the two are equal, will Tenant 2 be able to decrypt enncrypted DEKs received from Tenant 1. <br/>
 
-## <u>List of assertions</u>
+By flagging **SAME_KEK_ASSIGNED** as true the max number of KEKs assigned will be set to 1 and both Tenants will be assigned the same KEK from the Keystore. This alternative model introduces a faulty behavior to observe verification failure. <br/>
 
-**User Receive - assert(temp_key == DEKs[temp_key-1])** <br />
-A DEK received is one previously encrypted by the user<br />
+On set intervals defined as constants, KEKs will be rotated in the database and signals will be sent to the tenants assigned those KEKs. Tenants will then Re-encrypt those encrypted DEKs in order to rotate the encryption. <br/>
 
-**User Receive - assert(temp_e_key.version > encrypted_DEKs[temp_e_key.id-1].version)**<br />
-If the same DEK is encrypted several times, the encryption is not identical<br />
-
-**Keystore Encrypt - assert(kek_id > 0 && kek_id <= NUM_KEKS)**<br />
-Keystore only encrypts if a valid KEK has been included in the request<br />
-
-**Keystore Decrypt - assert(KEKs[kek_id-1].version >= temp_e_key.ref_version)**<br />
-The version of the KEK used in decryption is greater or equal to the one used for encryption<br />
+## Some Default Values
+Number of Tenants: 2<br />
+Number of DEKs per Tenant: 2<br />
+Number of KEKs in Keystore: 4<br />
+Max number of KEKs per Tenant: 2
 
