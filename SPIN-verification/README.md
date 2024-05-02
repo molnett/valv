@@ -7,6 +7,18 @@ By flagging **SAME_KEK_ASSIGNED** as true the max number of KEKs assigned will b
 
 On set intervals defined as constants, KEKs will be rotated in the database and signals will be sent to the tenants assigned those KEKs. Tenants will then Re-encrypt those encrypted DEKs in order to rotate the encryption. <br/>
 
+## To Run
+Most of this can be done with an external tool such as iSpin, additional information found [here](https://spinroot.com/spin/Man/README.html).   <br />
+spin -T dist_coms.pml - Regular run that will halt on error and print any statements in the code. <br />
+spin -T -a dist_coms.pml - generates pan.c for verification. <br />
+
+**Compile pan.c**
+gcc -w -o pan pan.c - (semi-)optional flags used currently (-DMEMLIM=12000 -O2 -DVECTORSZ=1280 -DXUSAFE )<br />
+
+**Verify**
+./pan -m100000000  -a -c1<br />
+
+
 ## Some Default Values
 Number of Tenants: 2<br />
 Number of DEKs per Tenant: 2<br />

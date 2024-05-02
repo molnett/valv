@@ -68,6 +68,13 @@ chan db2t2 = [DB2T_MAX] of { mtype, int }  // Database -> Tenant 2
 
 int timer
 bool clear_cache
+// LTL variables
+int enc_1 = 1000, u_enc_1 = 1, enc_2 = 1000, u_enc_2 = 1
+
+
+// LTL claims
+// ltl { [] conf }
+//ltl Confidentiality { [] (enc_1 != u_enc_1 && enc_2 != u_enc_2 && enc_1 > 100 && enc_2 > 100 && u_enc_1 < 5 && u_enc_2 < 5) }
 
 init {
 
@@ -266,16 +273,32 @@ proctype Tenant(int id)
         
         if
         ::  msg == ass_KEK -> 
-                // KEK.id is stored in temp_e_key.ref_id to simplify channel operation  
                 assigned_KEKs[ass_idx] = temp_e_key.ref_id 
                 ass_idx++
         ::  msg == d_DEK ->
                 assert(temp_key == DEKs[(temp_key-1)%2] || (temp_key == received_e_DEKs[(temp_key-1)%2].id-ENC_DUMMY && grant == VALID_GRANT))
                 assert(DEKs[0] != received_e_DEKs[(temp_key-1)%2].id-ENC_DUMMY)
                 assert(DEKs[1] != received_e_DEKs[(temp_key-1)%2].id-ENC_DUMMY)
+                if
+                :: id == 1 -> 
+                        enc_1 = encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id
+                        u_enc_1 = temp_key
+                ::  else -> 
+                        enc_2 = encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id
+                        u_enc_2 = temp_key
+                        enc_2 = received_e_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id
+                fi
         ::  msg == deny -> skip
         ::  msg == e_DEK ->
                 assert(temp_e_key.version > encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].version)
+                if
+                :: id == 1 -> 
+                        enc_1 = temp_e_key.id
+                        u_enc_1 = DEKs[(temp_e_key.id-ENC_DUMMY-1)%2]
+                ::  else -> 
+                        enc_2 = temp_e_key.id
+                        u_enc_2 = DEKs[(temp_e_key.id-ENC_DUMMY-1)%2]
+                fi
                 encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id = temp_e_key.id
                 encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].version = temp_e_key.version
                 encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].ref_id = temp_e_key.ref_id
@@ -510,7 +533,7 @@ proctype Keystore()
 proctype Database() {
 
     mtype msg
-    int dek_id, kek_id, i, tenant_id
+    int kek_id, i, tenant_id
     Key p_KEKs[NUM_KEKS]
 
     for (i in p_KEKs) {
