@@ -66,7 +66,7 @@ chan db2t1 = [DB2T_MAX] of { mtype, int }  // Database -> Tenant 1
 chan db2t2 = [DB2T_MAX] of { mtype, int }  // Database -> Tenant 2
 
 
-int timer, rotate_1, rotate_2, rotate_3, rotate_4, commit_1, commit_2, commit_3, commit_4
+int timer
 bool clear_cache
 
 init {
