@@ -75,7 +75,6 @@ init {
     clear_cache = false
 
     atomic {
-
           
         int i
 
@@ -123,7 +122,6 @@ proctype Tenant(int id)
             ::  else -> skip
             fi
         fi
-
 
         // Receive from tenant 1 
         if
@@ -502,13 +500,12 @@ proctype Keystore()
 }
 
 /**
-    When the Clock component is disabled, the Database contains a timer 
-    that acts as a clock sending signals to tenants when rotation has 
-    been executed. Rotation is not time-sensitive such that it is affected 
-    by distributed clock-sync issues, so it could also be seen as a tenant 
-    quering a clock to see if the scheduled rotation that could be part 
-    of the metadata in the KEK information available to the tenant has 
-    taken place.  
+    The Database contains a timer that acts as a clock sending signals to 
+    tenants when rotation has been executed. Rotation is not time-sensitive 
+    such that it is affected by distributed clock-sync issues, so it could 
+    also be seen as a tenant quering a clock to see if the scheduled rotation 
+    that could be part of the metadata in the KEK information available to 
+    the tenant has taken place.  
  */
 proctype Database() {
 
@@ -645,7 +642,6 @@ proctype Database() {
         goto Main
 
 }
-
 
 /*
     ## Access Control Info ##
