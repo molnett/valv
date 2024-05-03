@@ -5,7 +5,7 @@ When Tenant 1 has encrypted a DEK, it is sent to Tenant 2 together with a *grant
 
 By flagging **SAME_KEK_ASSIGNED** as true the max number of KEKs assigned will be set to 1 and both Tenants will be assigned the same KEK from the Keystore. This alternative model introduces a faulty behavior to observe verification failure. <br/>
 
-On set intervals defined as constants, KEKs will be rotated in the database and signals will be sent to the tenants assigned those KEKs. Tenants will then Re-encrypt those encrypted DEKs in order to rotate the encryption. <br/>
+On set intervals defined as constants, KEKs will be rotated in the database and signals will be sent to the tenants assigned those KEKs. Tenants will then re-encrypt those encrypted DEKs in order to rotate the encryption. <br/>
 
 ## To Run and Verify
 Most of this can be done with an external tool such as iSpin, additional information found [here](https://spinroot.com/spin/Man/README.html).   <br />
