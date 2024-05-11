@@ -99,7 +99,9 @@ impl KeyManagementService for ValvAPI {
         request: tonic::Request<google::kms::CreateCryptoKeyRequest>,
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
         let keystore = self.keystore.lock().await;
-        let encrypted_key = keystore.create_crypto_key(request.into_inner().crypto_key_id);
+        let encrypted_key = keystore
+            .create_crypto_key(request.into_inner().crypto_key_id)
+            .await;
 
         return Ok(tonic::Response::new(google::kms::CryptoKey {
             name: encrypted_key.name,

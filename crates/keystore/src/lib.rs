@@ -9,6 +9,7 @@ use storage::{fdb::FoundationDB, interface::KeystoreStorage};
 pub mod api;
 mod gen;
 mod storage;
+mod tests;
 
 pub mod valv {
     pub mod keystore {
@@ -200,20 +201,5 @@ impl KeystoreAPI for Keystore {
             &cipher,
             tag,
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::KeystoreAPI;
-
-    #[tokio::test]
-    async fn test_keystore() {
-        let _guard = unsafe { foundationdb::boot() };
-
-        let keystore = super::Keystore::new().await;
-        let key = keystore.create_crypto_key("test".to_string()).await;
-        let key_metadata = keystore.get_crypto_key(key.name).await;
-        assert_eq!(key_metadata.unwrap().name, "test");
     }
 }
