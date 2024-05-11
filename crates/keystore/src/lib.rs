@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::RwLock};
 
-use async_trait::async_trait;
 use boring::error::ErrorStack;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     valv::keystore::v1::{
         master_key_management_service_server::{
-            MasterKeyManagementService, MasterKeyManagementServiceServer,
+            MasterKeyManagementService,
         },
         CreateMasterKeyRequest, CreateMasterKeyResponse, CreateMasterKeyVersionRequest,
         CreateMasterKeyVersionResponse, DecryptRequest, DecryptResponse,

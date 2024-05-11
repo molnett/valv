@@ -4,7 +4,7 @@ use clap::Parser;
 use keystore::{
     api,
     valv::keystore::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
-    Keystore, KeystoreAPI,
+    Keystore,
 };
 use secrecy::{ExposeSecret, Secret};
 use tonic::transport::Server;

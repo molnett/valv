@@ -1,8 +1,8 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use foundationdb::{
-    directory::{Directory, DirectoryError},
-    tuple::{unpack, Subspace, TuplePack},
+    directory::{Directory},
+    tuple::{unpack, TuplePack},
     FdbError, RangeOption,
 };
 
