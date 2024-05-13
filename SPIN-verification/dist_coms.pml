@@ -15,10 +15,10 @@
 #define VALID_GRANT 1
 #define ENC_DUMMY 5
 #define EMPTY_PASS 0
-#define ROT_KEK_1 15000
-#define ROT_KEK_2 18000
-#define ROT_KEK_3 25000
-#define ROT_KEK_4 24000
+#define ROT_KEK_1 400000
+#define ROT_KEK_2 240000
+#define ROT_KEK_3 210000
+#define ROT_KEK_4 440000
 #define CACHE_CLEAR 4000
 #define SAME_KEK_ASSIGNED false
 
@@ -50,7 +50,7 @@ chan k2t1 = [K2T_MAX] of { mtype, byte, byte, byte, int, int }	// Keystore -> Te
 chan k2t2 = [K2T_MAX] of { mtype, byte, byte, byte, int, int }	// Keystore -> Tenant 2
 
 // { message type, E_KEY-ID, E_KEY-VERSION, E_KEY-REF_ID, E_KEY-REF_V, GRANT }
-chan t12t2 = [T_SEND_MAX] of { mtype, byte, byte, byte, int, byte }	// Tenant 1 -> Tenant 2
+chan t12t2 = [T_SEND_MAX] of { mtype, byte, int, byte, int, byte }	// Tenant 1 -> Tenant 2
 
 //                  { message type, KEK_ID, TENANT_ID, GRANT}
 chan k2ac = [K2AC_MAX] of { mtype, byte, byte, byte }	// Keystore -> Access Control
@@ -67,24 +67,20 @@ chan db2k = [DB2K_MAX] of { mtype, byte, int, byte }	// Database -> Keystore
 chan db2t1 = [DB2T_MAX] of { mtype, byte }  // Database -> Tenant 1
 chan db2t2 = [DB2T_MAX] of { mtype, byte }  // Database -> Tenant 2
 
-
+chan a = [0] of {int}
 int timer
-bool clear_cache
+bool clear_cache, done
 // LTL variables
-unsigned enc_1 : 4, u_enc_1 : 3, enc_2 : 4, u_enc_2 : 3
+unsigned enc_1 : 4 = 15, u_enc_1 : 4 = 14, enc_2 : 4 = 15, u_enc_2 : 4 = 14, sent : 2
 
 
 // LTL claims
 // ltl { [] conf }
-//ltl Confidentiality { [] (enc_1 != u_enc_1 && enc_2 != u_enc_2 && enc_1 > 100 && enc_2 > 100 && u_enc_1 < 5 && u_enc_2 < 5) }
-
+// ltl Confidentiality { [] (enc_1 != u_enc_1 && enc_2 != u_enc_2 && enc_1 > 4 && enc_2 > 4 && (u_enc_1 == 14||u_enc_1 < 5) && (u_enc_2 == 14 || u_enc_2 < 5)) }
+// bool ps_confidentiality, ps_integrity, ps_authentication, ps_authorization, ps_consistency, pl_confidentiality, pl_integrity, pl_authentication, pl_authorization, pl_consistency
+// TRY TO VIOLATE LTL
 init {
-
     atomic {
-        enc_1 = 15
-        u_enc_1 = 0
-        enc_2 = 15
-        u_enc_2 = 0
         timer = 0
         clear_cache = false
           
@@ -96,9 +92,9 @@ init {
         run Database()
         run Keystore()
         run AccessControl()
-        
     }
 }
+
 
 proctype Tenant(unsigned id : 2)
 {
@@ -107,8 +103,8 @@ proctype Tenant(unsigned id : 2)
     bit grant
     byte assigned_KEKs[NUM_KEKS/2], DEKs[NUM_DEKS]
     E_Key temp_e_key
-    E_Key encrypted_DEKs[NUM_DEKS], received_e_DEKs[NUM_DEKS]
-    bool sent_1, sent_2
+    E_Key encrypted_DEKs[NUM_DEKS], received_e_DEK
+    bool sent2tenant
     
     atomic {
         for (i : 0 .. NUM_DEKS-1) {
@@ -117,8 +113,9 @@ proctype Tenant(unsigned id : 2)
     }
 
     Select_state: 
-        
+        enc_1 = u_enc_1
         atomic{ 
+            
             if
             ::  SAME_KEK_ASSIGNED -> assert(assigned_KEKs[1] == 0)
             ::  else -> skip
@@ -126,6 +123,8 @@ proctype Tenant(unsigned id : 2)
         // Receive rotation update ping
             if
             ::  id == 1 ->
+                // printf("encrypted_DEKs[%d]: %d\n", 0, encrypted_DEKs[0].id)
+                // printf("encrypted_DEKs[%d]: %d\n", 1, encrypted_DEKs[1].id)
                 if
                 ::  db2t1?[msg, recrypt_idx] -> db2t1?msg, recrypt_idx ->
                         goto Recrypt
@@ -141,27 +140,31 @@ proctype Tenant(unsigned id : 2)
         // Receive from tenant 1 
             if
             ::  id == 2 -> 
+
                 if
                 ::  t12t2?[msg, temp_e_key.id, temp_e_key.version, temp_e_key.ref_id, temp_e_key.ref_version, grant] ->
                         t12t2?msg, temp_e_key.id, temp_e_key.version, temp_e_key.ref_id, temp_e_key.ref_version, grant  ->
                         assert(temp_e_key.id-ENC_DUMMY-1 < 2)
-                        received_e_DEKs[temp_e_key.id-ENC_DUMMY-1].id = temp_e_key.id
-                        received_e_DEKs[temp_e_key.id-ENC_DUMMY-1].version = temp_e_key.version
-                        received_e_DEKs[temp_e_key.id-ENC_DUMMY-1].ref_id = temp_e_key.ref_id
-                        received_e_DEKs[temp_e_key.id-ENC_DUMMY-1].ref_version = temp_e_key.ref_version
+                        received_e_DEK.id = temp_e_key.id
+                        received_e_DEK.version = temp_e_key.version
+                        received_e_DEK.ref_id = temp_e_key.ref_id
+                        received_e_DEK.ref_version = temp_e_key.ref_version
                 ::  else -> skip
                 fi
             ::  else -> skip
             fi
         }
+
         
+
+
+        // if
+        // ::  id == 1 -> printf("HERE\n")
+        // ::  else -> skip
+        // fi
+
         // Main selection loop
         do
-        ::  if
-            ::  id == 1 && !(sent_1 && sent_2) && (encrypted_DEKs[0].id != 0 || encrypted_DEKs[1].id != 0) -> 
-                    goto Send_to_tenant  
-            ::  else -> skip
-            fi
         ::  goto Encrypt
         ::  goto Decrypt
         ::  goto Request_KEK
@@ -169,24 +172,26 @@ proctype Tenant(unsigned id : 2)
 
     Encrypt:
 
-        atomic {
             if
             ::  id == 1 ->
-                do
-                ::  t12k!e_DEK, DEKs[0], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
-                ::  t12k!e_DEK, DEKs[0], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
-                ::  t12k!e_DEK, DEKs[1], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
-                ::  t12k!e_DEK, DEKs[1], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
-                od
+                atomic {
+                    do
+                    ::  t12k!e_DEK, DEKs[0], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
+                    ::  t12k!e_DEK, DEKs[0], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
+                    ::  t12k!e_DEK, DEKs[1], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
+                    ::  t12k!e_DEK, DEKs[1], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id -> break
+                    od
+                }
             ::  else ->
-                do
-                ::  t22k!e_DEK, DEKs[0], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
-                ::  t22k!e_DEK, DEKs[0], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
-                ::  t22k!e_DEK, DEKs[1], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
-                ::  t22k!e_DEK, DEKs[1], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
-                od
+                atomic {
+                    do
+                    ::  t22k!e_DEK, DEKs[0], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
+                    ::  t22k!e_DEK, DEKs[0], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
+                    ::  t22k!e_DEK, DEKs[1], assigned_KEKs[0], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
+                    ::  t22k!e_DEK, DEKs[1], assigned_KEKs[1], EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant -> break
+                    od
+                }   
             fi
-        }
 
         goto Receive
     
@@ -208,10 +213,8 @@ proctype Tenant(unsigned id : 2)
                         t22k!d_DEK, EMPTY_PASS, encrypted_DEKs[0].ref_id, encrypted_DEKs[0].id, encrypted_DEKs[0].version, encrypted_DEKs[0].ref_version, id, grant
                 ::  encrypted_DEKs[1].id != 0 -> 
                         t22k!d_DEK, EMPTY_PASS, encrypted_DEKs[1].ref_id, encrypted_DEKs[1].id, encrypted_DEKs[1].version, encrypted_DEKs[1].ref_version, id, grant
-                ::  received_e_DEKs[0].id != 0 ->
-                        t22k!d_DEK, EMPTY_PASS, received_e_DEKs[0].ref_id, received_e_DEKs[0].id, received_e_DEKs[0].version, received_e_DEKs[0].ref_version, id, grant
-                ::  received_e_DEKs[1].id != 0 ->
-                        t22k!d_DEK, EMPTY_PASS, received_e_DEKs[1].ref_id, received_e_DEKs[1].id, received_e_DEKs[1].version, received_e_DEKs[1].ref_version, id, grant
+                ::  received_e_DEK.id != 0 ->
+                        t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, received_e_DEK.version, received_e_DEK.ref_version, id, grant
                 ::  else -> goto Select_state 
                 fi
             fi
@@ -221,8 +224,9 @@ proctype Tenant(unsigned id : 2)
 
     Recrypt:
 
-        i = 0 
-        for (i in encrypted_DEKs) {
+        i = 0
+        for (i : 0 .. NUM_DEKS-1) {
+
             if 
             ::  encrypted_DEKs[i].ref_id == recrypt_idx -> 
                 if  // Send and Receive
@@ -259,54 +263,72 @@ proctype Tenant(unsigned id : 2)
         atomic {
             if  
             ::  id == 1 -> t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id
-            ::  else -> t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id
+            ::  else -> t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant
             fi
         }
 
         goto Receive
 
-    Send_to_tenant:
-
-        atomic {
-            if
-            ::  encrypted_DEKs[0].id != 0 ->
-                    t12t2!send_e_DEK, encrypted_DEKs[0].id, encrypted_DEKs[0].version, encrypted_DEKs[0].ref_id, encrypted_DEKs[0].ref_version, GRANT
-                    sent_1 = true
-            ::  encrypted_DEKs[1].id != 0 ->
-                    t12t2!send_e_DEK, encrypted_DEKs[1].id, encrypted_DEKs[1].version, encrypted_DEKs[1].ref_id, encrypted_DEKs[1].ref_version, GRANT
-                    sent_2 = true
-            ::  else -> skip
-            fi
-        }
-
-        goto Select_state
 
     Receive:
 
         if
-        ::  id == 1 ->
-                k2t1?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
-        ::  else ->
-                k2t2?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
+        ::  !done -> 
+            if
+            ::  id == 1 ->
+                    k2t1?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
+            ::  else ->
+                    k2t2?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version
+            fi
+        ::  else -> 
+            msg = deny
+            if
+            ::  id == 1 ->
+                if
+                ::  atomic { k2t1?[msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version] ->
+                        k2t1?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version}
+                ::  else -> skip
+                fi
+            ::  else ->
+                if
+                ::  atomic { k2t2?[msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version] ->
+                        k2t2?msg, temp_key, temp_e_key.ref_id, temp_e_key.id, temp_e_key.version, temp_e_key.ref_version}
+                ::  else -> skip
+                fi
+            fi
         fi
 
-        d_step {
+        atomic {
             if
             ::  msg == ass_KEK -> 
                     assigned_KEKs[ass_idx] = temp_e_key.ref_id 
+                    // printf("ass[%d]: %d\n", ass_idx, assigned_KEKs[ass_idx] )
                     ass_idx++
             ::  msg == d_DEK ->
-                    assert(temp_key == DEKs[(temp_key-1)%2] || (temp_key == received_e_DEKs[(temp_key-1)%2].id-ENC_DUMMY && grant == VALID_GRANT))
-                    assert(DEKs[0] != received_e_DEKs[(temp_key-1)%2].id-ENC_DUMMY)
-                    assert(DEKs[1] != received_e_DEKs[(temp_key-1)%2].id-ENC_DUMMY)
+                    assert(temp_key == DEKs[(temp_key-1)%2] || (temp_key == received_e_DEK.id-ENC_DUMMY && grant == VALID_GRANT))
+                    assert(DEKs[0] != received_e_DEK.id-ENC_DUMMY)
+                    assert(DEKs[1] != received_e_DEK.id-ENC_DUMMY)
                     if
                     :: id == 1 -> 
-                            enc_1 = encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id
+                            enc_1 = encrypted_DEKs[(temp_key-1)%2].id
                             u_enc_1 = temp_key
+                            // printf("enc_1: %d, u_enc_1: %d\n", enc_1, u_enc_1)
                     ::  else -> 
-                            enc_2 = encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id
+                            enc_2 = encrypted_DEKs[(temp_key-1)%2].id
                             u_enc_2 = temp_key
-                            enc_2 = received_e_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].id
+                            if
+                            ::  temp_key == encrypted_DEKs[(temp_key-1)%2].id-ENC_DUMMY -> 
+                                    assert(temp_key == enc_2-ENC_DUMMY)
+                            ::  else -> skip
+                            fi
+                            // printf("enc_2: %d, u_enc_2: %d\n", enc_2, u_enc_2)
+                            enc_2 = received_e_DEK.id
+                            // printf("enc_2: %d, u_enc_2: %d\n", enc_2, u_enc_2)
+                            if
+                            ::  temp_key == received_e_DEK.id-ENC_DUMMY -> 
+                                    assert(temp_key == enc_2-ENC_DUMMY)
+                            ::  else -> skip
+                            fi
                     fi
             ::  msg == deny -> skip
             ::  msg == e_DEK ->
@@ -323,20 +345,42 @@ proctype Tenant(unsigned id : 2)
                     encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].version = temp_e_key.version
                     encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].ref_id = temp_e_key.ref_id
                     encrypted_DEKs[(temp_e_key.id-ENC_DUMMY-1)%2].ref_version = temp_e_key.ref_version
+                    if
+                    ::  id == 1 && !sent2tenant -> goto Send_to_tenant  
+                    ::  else -> skip
+                    fi
             fi
-            enc_1 = 15
-            u_enc_1 = 0
-            enc_2 = 15
-            u_enc_2 = 0
+            // enc_1 = 15
+            // u_enc_1 = 14
+            // enc_2 = 15
+            // u_enc_2 = 14
         }
+        // enc_1 = 15
+        // u_enc_1 = 15
+        // enc_2 = 15
+        // u_enc_2 = 15
         
+        goto Select_state
+    
+    Send_to_tenant:
+
+        atomic {
+            t12t2!send_e_DEK, temp_e_key.id, temp_e_key.version, temp_e_key.ref_id, temp_e_key.ref_version, GRANT
+            sent2tenant = true
+            sent++
+            // enc_1 = 15
+            // u_enc_1 = 14
+            // enc_2 = 15
+            // u_enc_2 = 14
+        }
+
         goto Select_state
 }
 
 proctype Keystore()
 {
     mtype msg, enc_msg
-    int version
+    int version // , receive
     unsigned dek_id : 3, kek_id : 3, kek_ref : 4, i : 3, tenant_id : 2, id : 3, is_case : 2, kek_idx : 3, assigned_to : 2 
     bit grant
     bool valid, received
@@ -352,7 +396,7 @@ proctype Keystore()
             if // Clear Cache
             ::  clear_cache -> 
                     i = 0
-                    for (i in v_KEKs) {
+                    for (i : 0 .. NUM_KEKS-1) {
                         v_KEKs[i].id = 0 
                         v_KEKs[i].version = 0
                         v_KEKs[i].assigned_to = 0
@@ -367,7 +411,13 @@ proctype Keystore()
     Receive:
         
         atomic {
-
+            // receive++
+            // if
+            // ::  !done && receive > 20 ->// && sent > 1 ->  
+            //         //printf("BTB: %d\n", timer)  
+            //         done == true 
+            // ::  else -> skip
+            // fi
             received = false
 
             if 
@@ -552,7 +602,12 @@ proctype Keystore()
             if 
             ::  enc_msg == re_DEK -> 
                     assert(temp_e_key.ref_version <= v_KEKs[kek_id-1].version && temp_e_key.ref_version > v_KEKs[kek_id-1].version-2)
-            ::  else -> temp_e_key.id = dek_id+ENC_DUMMY
+            ::  else -> 
+                    // if
+                    // ::  tenant_id == 1 -> printf("P1 DEK: %d\n", dek_id) 
+                    // ::  else -> printf("P2 DEK: %d\n", dek_id)
+                    // fi
+                    temp_e_key.id = dek_id+ENC_DUMMY
             fi
             temp_e_key.version = timer
             temp_e_key.ref_id = v_KEKs[kek_id-1].id+ENC_DUMMY
@@ -596,7 +651,8 @@ proctype Database() {
     bool accessed
 
     atomic {
-        for (i in p_KEKs) {
+        i = 0
+        for (i : 0 .. NUM_KEKS-1) {
             p_KEKs[i].id = i+1
             p_KEKs[i].version = 1
         }
@@ -605,7 +661,10 @@ proctype Database() {
     Main:
 
         atomic {
-            timer++
+            if 
+            ::  !done -> timer++ 
+            ::  else -> skip
+            fi
 
             if  // Cache timer
             ::  timer%CACHE_CLEAR == 0 -> 
@@ -698,7 +757,7 @@ proctype Database() {
         atomic {
             accessed = false
             i = 0
-            for (i in p_KEKs) {
+            for (i : 0 .. NUM_KEKS-1) {
                 if 
                 ::  p_KEKs[i].id == kek_id -> 
                         
@@ -756,11 +815,16 @@ proctype AccessControl()
     Select_state:
 
         k2ac?msg, kek_id, tenant_id, grant
+        // do
+        // ::  k2ac?msg, kek_id, tenant_id, grant -> break
+        // ::  timeout -> goto Select_state
+        // od
 
         if
         ::  msg == ass_KEK -> goto Assign_KEK
         ::  msg == d_DEK || msg == e_DEK || msg == re_DEK -> goto Authorize
-        ::  else -> goto Deny_request
+        // ::  else -> goto Deny_request
+        ::  else -> skip
         fi
 
         goto Select_state
@@ -864,5 +928,7 @@ proctype AccessControl()
         atomic { ac2k!deny }
 
         goto Select_state
+
+    Terminate:
 
 }
