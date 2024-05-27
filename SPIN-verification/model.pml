@@ -49,7 +49,7 @@ THE SOFTWARE.
 */ 
 #define MODEL 1
 
-typedef KEK { /* Unencrypted */
+typedef KEK { 
     unsigned id : 2
     bit version
 }
@@ -83,9 +83,6 @@ chan ac2k = [AC2K_MAX] of { mtype, byte, byte, byte, byte, byte, byte, byte, byt
 chan k2db = [K2DB_MAX] of { mtype, byte, byte, byte, byte, byte, byte, byte, byte }	    // Keystore -> Database, |k2db| = 8
 chan db2k = [DB2K_MAX] of { mtype, byte, byte, byte, byte, byte, byte, byte, byte, byte }	// Database -> Keystore, |db2k| = 9
 
-bool exit_atomic
-local bool cache_cleared
-
 // Channel buffers
 unsigned t12k_buff: 3, t22k_buff: 3
 unsigned k2t1_buff: 3, k2t2_buff: 3
@@ -93,15 +90,24 @@ unsigned k2db_buff: 3, db2k_buff: 3
 unsigned k2ac_buff: 3, ac2k_buff: 3
 unsigned req_buff: 3
 
+bool exit_atomic
+local bool cache_cleared
+
+
 // LTL variables
-bool p_assigned_1, p_assigned_2, curr_rotation//, db_active
-bool p_conf = true, p_authentic = true, p_int = true, p_sync = true, p_protocol = true
-local bool p_rotated_1 , p_rotated_2, p_enc_1, p_enc_2, db_skip_1, db_skip_2//, p_dec_1, p_dec_2
+bool p_assigned_1, p_assigned_2, curr_rotation
+bool p_conf = true, p_authentic = true, p_int = true, p_sync = true, p_protocol = true, p_cache = true
+local bool p_rotated_1 , p_rotated_2, p_enc_1, p_enc_2, db_skip_1, db_skip_2
 //unsigned p_enc_1 : 3, p_enc_2 : 3, p_dec_1 : 3, p_dec_2 : 3 //, p_will_rotate_1, p_will_rotate_2
 // unsigned count_1 : 2, count_2 : 2
 
 // LTL claims
-ltl safety_model_1 { [](p_conf && p_authentic && p_int && p_protocol && p_sync && (Tenant_1[1]@Decrypt_receive -> p_enc_1) && (Tenant_2[2]@Decrypt_receive -> p_enc_2) && (p_enc_1 -> p_assigned_1) && (p_enc_2 -> p_assigned_2 )) }
+ltl safety_model_1 { [](p_conf && p_authentic && p_int && p_protocol && p_sync && /*p_cache &&*/ (Tenant_1[1]@Decrypt_receive -> p_enc_1) && 
+                    (Tenant_2[2]@Decrypt_receive -> p_enc_2) && (p_enc_1 -> p_assigned_1) && (p_enc_2 -> p_assigned_2 )) 
+                    // &&
+                    // (Tenant_1[1]@Recrypt_Receive -> p_enc_1) && (Tenant_2[2]@Recrypt_Receive -> p_enc_2) 
+                    }
+// && (Database[3]@Access_KEK && []!(enabled(3)))
 // ltl liveness_existence_1 {!([]<>(Tenant_1[1]@Encrypt_receive))}
 // ltl liveness_existence_2 {!([]<>(Tenant_1[1]@Decrypt_receive))}
 // ltl liveness_existence_3 {!([]<>(Tenant_1[1]@Decrypt_receive) && ![]<>(Tenant_1[1]@Encrypt_receive))}
@@ -109,10 +115,11 @@ ltl safety_model_1 { [](p_conf && p_authentic && p_int && p_protocol && p_sync &
 // ltl liveness_existence_5 {!([]<>(Tenant_2[2]@Decrypt_receive))}
 // ltl liveness_existence_6 {!([]<>(Tenant_2[2]@Decrypt_receive) && ![]<>(Tenant_2[2]@Encrypt_receive))}
 // ltl liveness_existence_7 {!([]<>(Tenant_1[1]@Encrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive && Tenant_2[2]@Encrypt_receive) && []<>(Tenant_2[2]@Decrypt_receive))}
-ltl liveness_model_1 {  ([]<>(Tenant_1[1]@Encrypt_receive) -> ([]<>(p_rotated_1) && []<>(!p_rotated_1))) && ([]<>(Tenant_2[2]@Encrypt_receive) -> ([]<>(p_rotated_2) && []<>(!p_rotated_2))) &&
-                        ([]<>(Tenant_1[1]@Decrypt_receive) -> ([]<>(p_rotated_1) && []<>(!p_rotated_1))) && ([]<>(Tenant_2[2]@Decrypt_receive) -> ([]<>(p_rotated_2) && []<>(!p_rotated_2))) &&
-                        (([]<>(Tenant_1[1]@Decrypt_receive) && ![]<>(Tenant_1[1]@Encrypt_receive))-> ([]<>(db_skip_1) && []<>(!db_skip_1))) &&
-                        (([]<>(Tenant_2[2]@Decrypt_receive) && ![]<>(Tenant_2[2]@Encrypt_receive))-> ([]<>(db_skip_2) && []<>(!db_skip_2))) }
+// ltl liveness_model_2 {  ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
+// ltl liveness_model_1 {  ([]<>(Tenant_1[1]@Encrypt_receive) -> ([]<>(p_rotated_1) && []<>(!p_rotated_1))) && ([]<>(Tenant_2[2]@Encrypt_receive) -> ([]<>(p_rotated_2) && []<>(!p_rotated_2))) &&
+//                         ([]<>(Tenant_1[1]@Decrypt_receive) -> ([]<>(p_rotated_1) && []<>(!p_rotated_1))) && ([]<>(Tenant_2[2]@Decrypt_receive) -> ([]<>(p_rotated_2) && []<>(!p_rotated_2))) &&
+//                         (([]<>(Tenant_1[1]@Decrypt_receive) && ![]<>(Tenant_1[1]@Encrypt_receive))-> ([]<>(db_skip_1) && []<>(!db_skip_1))) &&
+//                         (([]<>(Tenant_2[2]@Decrypt_receive) && ![]<>(Tenant_2[2]@Encrypt_receive))-> ([]<>(db_skip_2) && []<>(!db_skip_2))) }
 
 
 init {
@@ -149,13 +156,14 @@ proctype Tenant_1()
     atomic {
         do
         ::  MODEL == 1 -> break
-        ::  MODEL == 2 -> 
+        ::  MODEL == 2 -> break 
+        ::  MODEL == 3 -> 
                 encrypted_DEK.id = 6
                 encrypted_DEK.ref_id = 6
                 ref_version_1 = 0
                 ref_version_2 = 1
                 break
-        ::  MODEL == 3 -> 
+        ::  MODEL == 4 -> 
                 encrypted_DEK.id = 6
                 encrypted_DEK.ref_id = 6
                 break
@@ -170,64 +178,78 @@ proctype Tenant_1()
             
             do
             ::  k2t1_buff > 0 -> k2t1?msg, temp_dek, temp_e_dek.ref_id, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, auth, step -> req_buff-- -> k2t1_buff-- -> 
-                // AUTHENTICATION OR CONFIDENTIALITY VIOLATION
-                if
-                ::  temp_e_dek.id == 1 || temp_e_dek.id == 2 -> p_conf = false
-                ::  temp_e_dek.ref_id == 1 || temp_e_dek.ref_id == 2 -> p_conf = false
-                ::  auth != 1 -> p_authentic = false
-                ::  else -> skip
-                fi
-
-                if
-                ::  msg == deny -> 
-                        denied = true
-                        // if
-                        // ::  step != 2 -> p_protocol = false
-                        // ::  else -> skip
-                        // fi
-                ::  else ->
-                    denied = false
-                    if
-                    ::  msg == ass_KEK -> goto Assign_KEK_receive
-                    ::  msg == d_DEK -> goto Decrypt_receive
-                    ::  msg == e_DEK -> goto Encrypt_receive
-                    ::  msg == re_DEK -> goto Recrypt_Receive
-                    fi    
-                fi
-                // break
+                
+                goto Receive
             
-            ::  t12k_buff < T2K_MAX -> 
+            ::  t12k_buff < T2K_MAX && k2t1_buff == 0-> 
                 
                 do
                 ::  MODEL == 1 -> 
                     do
                     ::  !(denied && p_assigned_1) -> 
-                        Assign_send:
                             t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_assigned_1) ->
-                        Encrypt_send:
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
-                    ::  !(denied && encrypted_DEK.id == 0) -> 
-                        Decrypt_send:
+                    ::  !(denied && !p_enc_1) -> 
                             t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
+                    // ::  !(denied && !p_enc_1) ->
+                    //         t12k!re_DEK, EMPTY_PASS, encrypted_DEK.ref_id,encrypted_DEK.id, EMPTY_PASS, id, 1 -> break
                     od
                     break
                 ::  MODEL == 2 -> 
                     do
-                    ::  t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_1, id -> break
-                    ::  t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_2, id -> break
-                    ::  t12k!d_DEK, EMPTY_PASS, EMPTY_PASS, encrypted_DEK.id, ref_version_2, id -> break
+                    ::  !(denied && p_assigned_1) -> 
+                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
+                    ::  !(denied && !p_assigned_1) ->
+                            t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     od
                     break
-                ::  MODEL == 3 -> t12k!re_DEK, assigned_KEK, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id -> break
+                ::  MODEL == 3 -> 
+                    do
+                    ::  t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_1, id -> break
+                    ::  t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_2, id -> break
+                    ::  !denied -> t12k!d_DEK, EMPTY_PASS, EMPTY_PASS, encrypted_DEK.id, ref_version_2, id -> break
+                    od
+                    break
+                ::  MODEL == 4 -> 
+                t12k!re_DEK, assigned_KEK, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id -> break
                 od
                 t12k_buff++
-                // break
             od
 
         }
 
-    
+    Receive:
+        atomic {
+
+            // AUTHENTICATION OR CONFIDENTIALITY VIOLATION
+            if
+            ::  temp_e_dek.id == 1 || temp_e_dek.id == 2 -> p_conf = false
+            ::  temp_e_dek.ref_id == 1 || temp_e_dek.ref_id == 2 -> p_conf = false
+            ::  auth != 1 -> p_authentic = false
+            ::  else -> skip
+            fi
+
+            if
+            ::  msg == deny -> 
+                    denied = true
+                    if
+                    ::  (step % 2) != 0 -> p_protocol = false
+                    ::  else -> skip
+                    fi
+            ::  else ->
+                denied = false
+                if
+                ::  msg == ass_KEK -> goto Assign_KEK_receive
+                ::  msg == d_DEK -> goto Decrypt_receive
+                ::  msg == e_DEK -> goto Encrypt_receive
+                ::  msg == re_DEK -> goto Recrypt_Receive
+                fi    
+            fi
+
+            goto Cleanup
+        }
+
     Assign_KEK_receive:
 
         atomic {
@@ -243,20 +265,21 @@ proctype Tenant_1()
             p_assigned_1 = true
             assigned_KEK = temp_e_dek.ref_id
             
+
             goto Cleanup
         }
     
     Decrypt_receive:
 
         atomic {
+            
             // PROTOCOL OR INTEGRITY VIOLATION
             if
             ::  step != 4 && step != 6 -> p_protocol = false
             ::  dek_id != temp_dek -> p_int = false
             ::  else -> skip
             fi
-            // printf("1\n")
-            assert(dek_id == temp_dek)
+
             goto Cleanup
         }
     
@@ -273,12 +296,14 @@ proctype Tenant_1()
             ::  else -> skip
             fi
 
+            // printf("HERE 1: %d, and %d\n", temp_e_dek.id, temp_e_dek.ref_id)
             encrypted_DEK.id = temp_e_dek.id
             encrypted_DEK.enc_version = temp_e_dek.enc_version
             encrypted_DEK.ref_id = temp_e_dek.ref_id
             encrypted_DEK.ref_version = temp_e_dek.ref_version
 
             p_enc_1 = true
+            // printf("%d\n", encrypted_DEK.id)
 
             goto Cleanup
         }
@@ -286,8 +311,15 @@ proctype Tenant_1()
     Recrypt_Receive:
 
         atomic {
-            assert(temp_e_dek.enc_version != encrypted_DEK.enc_version)
-            assert(temp_e_dek.id-ENC_DUMMY == dek_id)
+
+            if
+            ::  step != 6 -> p_protocol = false
+            ::  temp_e_dek.enc_version == encrypted_DEK.enc_version -> p_sync = false
+            ::  temp_e_dek.id-ENC_DUMMY != dek_id -> p_int = false
+            ::  temp_e_dek.ref_id != assigned_KEK -> p_int = false
+            ::  else -> skip
+            fi
+
             encrypted_DEK.id = temp_e_dek.id
             encrypted_DEK.enc_version = temp_e_dek.enc_version
             encrypted_DEK.ref_id = temp_e_dek.ref_id
@@ -325,7 +357,8 @@ proctype Tenant_2()
 
         do
         ::  MODEL == 1 -> break
-        ::  MODEL == 2 -> 
+        ::  MODEL == 2 -> break
+        ::  MODEL == 3 -> 
                 received_e_DEK.id = 6
                 received_e_DEK.ref_id = 6 
                 encrypted_DEK.id = 7
@@ -333,9 +366,7 @@ proctype Tenant_2()
                 ref_version_1 = 0
                 ref_version_2 = 1
                 break
-        // ::  MODEL == 2 -> 
-        //         break
-        ::  MODEL == 3 -> 
+        ::  MODEL == 4 -> 
                 encrypted_DEK.id = 7
                 encrypted_DEK.ref_id = 7
                 received_e_DEK.id = 6
@@ -352,83 +383,97 @@ proctype Tenant_2()
 
             do
             ::  k2t2_buff > 0 -> k2t2?msg, temp_dek, temp_e_dek.ref_id, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, grant, auth, step -> req_buff-- -> k2t2_buff-- -> 
-                // AUTHENTICATION OR CONFIDENTIALITY VIOLATION
-                if
-                ::  auth != 1 -> p_authentic = false
-                ::  temp_e_dek.id == 1 || temp_e_dek.id == 2 -> p_conf = false
-                ::  temp_e_dek.ref_id == 1 || temp_e_dek.ref_id == 2 -> p_conf = false
-                ::  else -> skip
-                fi
+                
+                goto Receive
 
-                if
-                ::  msg == deny -> 
-                    denied = true
-                    // PROTOCOL VIOLATION
-                    // if
-                    // ::  step != 4 -> p_protocol = false
-                    // ::  else -> skip
-                    // fi
-                ::  else ->
-                    denied = false
-                    if
-                    ::  msg == ass_KEK -> goto Assign_KEK_receive
-                    ::  msg == d_DEK -> goto Decrypt_receive
-                    ::  msg == e_DEK -> goto Encrypt_receive
-                    ::  msg == re_DEK -> goto Recrypt_Receive
-                    fi    
-                fi
-
-                // break
-            ::  t22k_buff < T2K_MAX -> 
+            ::  t22k_buff < T2K_MAX && k2t2_buff == 0 -> 
 
                 do
                 ::  MODEL == 1 -> 
                     do
                     ::  !(denied && p_assigned_2) -> 
-                        Assign_send:
                             t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant, 1 -> break
                     ::  !(denied && !p_assigned_2) ->
-                        Encrypt_send:
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant, 1 -> break
-                    ::  !(denied && encrypted_DEK.id == 0) -> 
-                        Decrypt_send:
+                    ::  !(denied && !p_enc_2) -> 
                             t22k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant, 1 -> break
+                    // ::  !(denied && !p_enc_2) ->
+                    //         t22k!re_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, EMPTY_PASS, id, grant, 1 -> break
                     od
                     break
                 ::  MODEL == 2 -> 
                     do
-                    ::  t22k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_1, id, grant -> break
-                    ::  t22k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_2, id, grant -> break
-                    ::  t22k!d_DEK, EMPTY_PASS, EMPTY_PASS, encrypted_DEK.id, ref_version_1, id, grant -> break
-                    // ::  t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_1, id, VALID_GRANT -> break
-                    // ::  t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_2, id, VALID_GRANT -> break
-                    // ::  t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_1, id, grant -> break
-                    // ::  t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_2, id, grant -> break
+                    ::  !(denied && p_assigned_2) -> 
+                            t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant, 1 -> break
+                    ::  !(denied && !p_assigned_2) ->
+                            t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant, 1 -> break
                     od
                     break
-                ::  MODEL == 3 -> t22k!re_DEK, assigned_KEK, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant -> break
+                ::  MODEL == 3 -> 
+                    do
+                    ::  t22k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_1, id, grant -> break
+                    ::  t22k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, ref_version_2, id, grant -> break
+                    ::  !denied -> t22k!d_DEK, EMPTY_PASS, EMPTY_PASS, encrypted_DEK.id, ref_version_1, id, grant -> break
+                    ::  t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_1, id, VALID_GRANT -> break
+                    ::  t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_2, id, VALID_GRANT -> break
+                    ::  !denied -> t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_1, id, grant -> break
+                    ::  !denied -> t22k!d_DEK, EMPTY_PASS, received_e_DEK.ref_id, received_e_DEK.id, ref_version_2, id, grant -> break
+                    od
+                    break
+                ::  MODEL == 4 -> t22k!re_DEK, assigned_KEK, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant -> break
                 od
                 t22k_buff++
-                // break
             od
             
         }
 
+    Receive: 
 
+        atomic {   
+
+            // AUTHENTICATION OR CONFIDENTIALITY VIOLATION
+            if
+            ::  auth != 1 -> p_authentic = false
+            ::  temp_e_dek.id == 1 || temp_e_dek.id == 2 -> p_conf = false
+            ::  temp_e_dek.ref_id == 1 || temp_e_dek.ref_id == 2 -> p_conf = false
+            ::  else -> skip
+            fi
+
+            if
+            ::  msg == deny -> 
+                denied = true
+                // PROTOCOL VIOLATION
+                if
+                ::  (step % 2) != 0 -> p_protocol = false
+                ::  else -> skip
+                fi
+            ::  else ->
+                denied = false
+                if
+                ::  msg == ass_KEK -> goto Assign_KEK_receive
+                ::  msg == d_DEK -> goto Decrypt_receive
+                ::  msg == e_DEK -> goto Encrypt_receive
+                ::  msg == re_DEK -> goto Recrypt_Receive
+                fi    
+            fi
+
+            goto Cleanup
+        }
     
     Assign_KEK_receive:
 
         atomic {
+
             // PROTOCOL, SYNCHRONIZATION OR INTEGRITY VIOLATION
             if
             ::  step != 8 -> p_protocol = false
-            ::  assigned_KEK == temp_e_dek.ref_id -> p_int = false 
+            ::  temp_e_dek.ref_id != 7  -> p_int = false 
             ::  p_assigned_2 -> p_sync = false // liveness
             ::  else -> skip
             fi
             p_assigned_2 = true
             assigned_KEK = temp_e_dek.ref_id
-            
+
             goto Cleanup
         }
     
@@ -443,12 +488,36 @@ proctype Tenant_2()
             ::  grant == 1 && temp_dek != 1 -> p_int = false
             ::  else -> skip
             fi
-            // assert(false)
             
             goto Cleanup
         }
     
     Encrypt_receive:
+
+        atomic {
+            // printf("HERE 2: %d, and %d\n", temp_e_dek.id, temp_e_dek.ref_id)
+            
+            // PROTOCOL, SYNCHRONIZATION OR INTEGRITY VIOLATION
+            if
+            ::  step != 6 -> p_protocol = false
+            ::  temp_e_dek.enc_version == encrypted_DEK.enc_version -> p_sync = false
+            ::  temp_e_dek.id-ENC_DUMMY != dek_id -> p_int = false
+            ::  temp_e_dek.ref_id != assigned_KEK -> p_int = false
+            ::  else -> skip
+            fi
+            encrypted_DEK.id = temp_e_dek.id
+            encrypted_DEK.enc_version = temp_e_dek.enc_version
+            encrypted_DEK.ref_id = temp_e_dek.ref_id
+            encrypted_DEK.ref_version = temp_e_dek.ref_version
+            // printf("ID: %d ",  encrypted_DEK.id)
+            // printf("KEK: %d ",  encrypted_DEK.ref_id)
+            
+            p_enc_2 = true
+
+            goto Cleanup
+        }
+    
+    Recrypt_Receive:
 
         atomic {
             
@@ -460,23 +529,6 @@ proctype Tenant_2()
             ::  temp_e_dek.ref_id != assigned_KEK -> p_int = false
             ::  else -> skip
             fi
-            
-            encrypted_DEK.id = temp_e_dek.id
-            encrypted_DEK.enc_version = temp_e_dek.enc_version
-            encrypted_DEK.ref_id = temp_e_dek.ref_id
-            encrypted_DEK.ref_version = temp_e_dek.ref_version
-            
-            p_enc_2 = true
-
-            goto Cleanup
-        }
-    
-    Recrypt_Receive:
-
-        atomic {
-            
-            assert(temp_e_dek.enc_version != encrypted_DEK.enc_version)
-            assert(temp_e_dek.id-ENC_DUMMY == dek_id)
 
             encrypted_DEK.id = temp_e_dek.id
             encrypted_DEK.enc_version = temp_e_dek.enc_version
@@ -514,28 +566,27 @@ proctype Keystore()
     KEK temp_key
     KEK v_KEKs[NUM_KEKS]
 
-    atomic{
+    // atomic{
 
-        if
-        ::  MODEL != 1 -> 
-            v_KEKs[0].id = 1        
-            v_KEKs[0].id = 2 
-        ::  else -> skip
-        fi
-    }   
+    //     if
+    //     ::  MODEL != 1 -> 
+    //         v_KEKs[0].id = 1        
+    //         v_KEKs[0].id = 2 
+    //     ::  else -> skip
+    //     fi
+    // }   
 
     Select_state:
 
-        cache_cleared = !cache_cleared
+
+        // cache_cleared = !cache_cleared
+        exit_atomic = true
 
         atomic {
 
-
             do  //FROM AC
-            ::  ac2k_buff > 0 -> ac2k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, auth, step -> ac2k_buff-- ->  
+            ::  ac2k_buff > 0 && db2k_buff == 0-> ac2k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, auth, step -> ac2k_buff-- ->  
                 
-                select_case = 2
-
                 // PROTOCOL OR AUTHENTICATION VIOLATION
                 if
                 ::  auth != 1 -> p_authentic = false -> goto Deny_request
@@ -551,18 +602,17 @@ proctype Keystore()
                 fi
 
                 do
-                ::  msg == ass_KEK -> goto Assign_KEK
-                ::  msg == ass_KEK2 -> select_case = 4 -> goto Assign_KEK
-                ::  msg == d_DEK -> goto Decrypt  
-                ::  msg == e_DEK -> goto Encrypt 
-                ::  msg == re_DEK -> goto Recrypt 
+                ::  msg == ass_KEK2 -> goto Assign_KEK_return
+                ::  msg == d_DEK -> goto Decrypt_Database_Check  
                 ::  msg == deny -> goto Deny_request
+                ::  msg == ass_KEK -> kek_id = tenant_id -> break
+                ::  else -> break
                 od
-            
+
+                goto Send_to_Database
+               
                 //FROM DB
             ::  db2k_buff > 0 -> db2k?msg, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, kek_version, auth, step -> db2k_buff-- ->  
-
-                select_case = 3
 
                 // PROTOCOL OR AUTHENTICATION VIOLATION
                 if
@@ -571,335 +621,207 @@ proctype Keystore()
                 ::  else -> skip
                 fi
 
-                do
-                ::  msg == ass_KEK -> goto Assign_KEK
-                ::  msg == d_DEK -> goto Decrypt  
-                ::  msg == e_DEK -> goto Encrypt 
-                ::  msg == re_DEK -> goto Recrypt
+                // Update KEKs
+                if
                 ::  msg == deny -> goto Deny_request
+                ::  else -> 
+                        v_KEKs[kek_id-1].id = kek_id
+                        v_KEKs[kek_id-1].version = kek_version
+                fi
+                
+                // ROTATION CHECK
+                if
+                ::  tenant_id == 1 ->
+                    if
+                    ::  v_KEKs[kek_id-1].version == 0 -> 
+                            p_rotated_1 = true
+                    ::  else -> p_rotated_1 = false
+                    fi
+                ::  tenant_id == 2 ->
+                    if
+                    ::  v_KEKs[kek_id-1].version == 0 -> 
+                            p_rotated_2 = true
+                    ::  else -> p_rotated_2 = false
+                    fi
+                fi
+
+                do
+                ::  msg == ass_KEK -> 
+                        msg = ass_KEK2 
+                        kek_ref = kek_id+ENC_DUMMY 
+                        goto Send_to_Access_Control 
+                ::  msg == d_DEK -> goto Decrypt_return  
+                ::  msg == e_DEK || msg == re_DEK -> assert(msg != ass_KEK) -> goto Encrypt_return
                 od
 
              
                 // FROM TENANT 
-            ::  (turn == 1 || (turn == 0 && t22k_buff == 0)) && req_buff < REQ_MAX && t12k_buff > 0 -> t12k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, step -> req_buff++ -> t12k_buff-- ->                  
+            ::  (turn == 1 || (turn == 0 && t22k_buff == 0)) && req_buff < REQ_MAX && t12k_buff > 0  && ac2k_buff == 0 && db2k_buff == 0 -> 
+                    t12k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, step -> req_buff++ -> t12k_buff-- ->                  
 
-                select_case = 1
                 turn = 0
+
                 // PROTOCOL OR AUTHENTICATION VIOLATION
                 if
                 ::  tenant_id != 1 -> p_authentic = false -> goto Deny_request
                 ::  step != 1 -> p_protocol = false
                 ::  else -> skip
                 fi
-
-                do
-                ::  msg == ass_KEK -> goto Assign_KEK
-                ::  msg == d_DEK -> goto Decrypt
-                ::  msg == e_DEK -> goto Encrypt
-                ::  msg == re_DEK -> goto Recrypt
-                od
-            ::   (turn == 0 || (turn == 1 && t12k_buff == 0)) && req_buff < REQ_MAX && t22k_buff > 0 -> t22k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, step -> req_buff++ -> t22k_buff-- ->  
                 
-                select_case = 1
+                goto Send_to_Access_Control
+
+            ::  (turn == 0 || (turn == 1 && t12k_buff == 0)) && req_buff < REQ_MAX && t22k_buff > 0 && ac2k_buff == 0 && db2k_buff == 0 -> 
+                    t22k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, step -> req_buff++ -> t22k_buff-- ->  
+                
                 turn = 1
+
                 // PROTOCOL OR AUTHENTICATION VIOLATION
                 if
                 ::  tenant_id != 2 -> p_authentic = false -> goto Deny_request
                 ::  step != 1 -> p_protocol = false
                 ::  else -> skip
                 fi
-
-                do
-                ::  msg == ass_KEK ->  goto Assign_KEK
-                ::  msg == d_DEK -> goto Decrypt
-                ::  msg == e_DEK -> goto Encrypt
-                ::  msg == re_DEK -> goto Recrypt
-                od
+                
+                goto Send_to_Access_Control
+                    
             od
         }
-            
-        
-    Assign_KEK:
+
+    Send_to_Access_Control:
 
         atomic {
-            
-            if  // From Tenant to Access Control
-            ::  select_case == 1 -> 
-                    
-                    k2ac_buff < K2AC_MAX 
-                    k2ac!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, tenant_id, grant, id, step+1
-                    k2ac_buff++
-                
-                // From Access Control to Database
-            ::  select_case == 2 -> 
-                // if
-                // ::  !SAME_KEK_ASSIGNED -> kek_id = tenant_id  
-                // ::  else -> kek_id = 1 
-                // fi
-                kek_id = tenant_id
 
-                k2db_buff < K2DB_MAX  
-                k2db!ass_KEK, EMPTY_PASS, kek_id, EMPTY_PASS, EMPTY_PASS, tenant_id, grant, id, step+1
-                k2db_buff++
-                
-                // From Database to Access Control
-            ::  select_case == 3 -> 
+            k2ac_buff < K2AC_MAX  
+            k2ac!msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1  
+            k2ac_buff++
 
-                    v_KEKs[kek_id-1].id = kek_id
-                    v_KEKs[kek_id-1].version = kek_version
-
-                    k2ac_buff < K2AC_MAX 
-                    k2ac!ass_KEK2, EMPTY_PASS, kek_id+ENC_DUMMY, EMPTY_PASS, EMPTY_PASS, tenant_id, grant, id, step+1 
-                    k2ac_buff++
-
-                // From Access Control to Tenant
-            ::  select_case == 4 -> 
-
-                if // ack from Tenant was received during concurrent processing
-                ::  tenant_id == 1 && p_assigned_1 -> goto Deny_request
-                ::  tenant_id == 2 && p_assigned_2 -> goto Deny_request
-                ::  else -> skip
-                fi
-            
-                if
-                ::  tenant_id == 1 -> k2t1_buff < K2T_MAX 
-                    k2t1!ass_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
-                    // req_buff-- ->
-                    k2t1_buff++
-                ::  else -> k2t2_buff < K2T_MAX
-                    k2t2!ass_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
-                    // req_buff-- ->
-                    k2t2_buff++
-                fi
-            fi
-
-            goto Cleanup
+            goto Cleanup   
         }
 
-    Decrypt:
+    Send_to_Database:
+                    
+        atomic {
+         
+            k2db_buff < K2DB_MAX 
+            k2db!msg, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
+            k2db_buff++
+        
+            goto Cleanup
+        }
+            
+
+    Decrypt_Database_Check:
 
         atomic {
-
-            if  // From Tenant to Access Control
-            ::  select_case == 1 -> 
-                    
-                    k2ac_buff < K2AC_MAX  
-                    k2ac!d_DEK, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1  
-                    k2ac_buff++
+            
+            if // Already in memory so skip Database
+            ::  !(cache_cleared || (v_KEKs[kek_id-1].version == 1 && temp_e_dek.ref_version == 0)) ->
                 
-                // From Access Control to Database
-            ::  select_case == 2 -> 
-                if // Already in memory so skip Database
-                ::  !cache_cleared || !(v_KEKs[kek_id-1].version == 1 && temp_e_dek.ref_version == 0) ->
-                    
-                    select_case = 4 
-                    
-                    if
-                    ::  tenant_id == 1 -> db_skip_1 = true -> skip
-                    ::  tenant_id == 2 -> db_skip_2 = true -> skip
-                    fi
-                ::  else ->
-                    if
-                    ::  tenant_id == 1 -> db_skip_1 = false -> skip
-                    ::  tenant_id == 2 -> db_skip_2 = false -> skip
-                    fi
-                    k2db_buff < K2DB_MAX -> 
-                    k2db!d_DEK, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
-                    k2db_buff++
+                if
+                ::  tenant_id == 1 -> db_skip_1 = true -> skip
+                ::  tenant_id == 2 -> db_skip_2 = true -> skip
                 fi
-                
-                // From Database to Tenant
-            ::  select_case == 3 -> 
-                    
-                    select_case = 4
-                    
-                    v_KEKs[kek_id-1].id = kek_id
-                    v_KEKs[kek_id-1].version = kek_version
-
-                    // ROTATION CHECK
-                    if
-                    ::  tenant_id == 1 ->
-                        if
-                        ::  v_KEKs[kek_id-1].version == 0 -> 
-                                p_rotated_1 = true
-                        ::  else -> p_rotated_1 = false
-                        fi
-                    ::  tenant_id == 2 ->
-                        if
-                        ::  v_KEKs[kek_id-1].version == 0 -> 
-                                p_rotated_2 = true
-                        ::  else -> p_rotated_2 = false
-                        fi
-                    fi
+            ::  else ->
+                if
+                ::  tenant_id == 1 -> db_skip_1 = false -> skip
+                ::  tenant_id == 2 -> db_skip_2 = false -> skip
+                fi
             fi
 
-            if  // DB -> KS -> T or Database skip from case 2 AC -> KS -> T
-            ::  select_case == 4 ->
-                if
-                ::  tenant_id == 1 -> k2t1_buff < K2T_MAX 
-                    k2t1!d_DEK, temp_e_dek.id-ENC_DUMMY, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
-                    // req_buff-- -> 
-                    k2t1_buff++
-                ::  else -> k2t2_buff < K2T_MAX
-                    k2t2!d_DEK, temp_e_dek.id-ENC_DUMMY, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
-                    // req_buff-- -> 
-                    k2t2_buff++
-                fi
+            // // CACHE VIOLATION
+            // if
+            // ::  !(v_KEKs[kek_id-1].version == 1 && temp_e_dek.ref_version == 0) -> 
+            //     if
+            //     ::  tenant_id == 1 -> p_cache = (db_skip_1 || cache_cleared)
+            //     ::  tenant_id == 2 -> p_cache = (db_skip_2 || cache_cleared)  
+            //     fi
+            // ::  else -> skip         
+            // fi
+
+           
+            if
+            ::  tenant_id == 1 && !db_skip_1 -> goto Send_to_Database
+            ::  tenant_id == 2 && !db_skip_2 -> goto Send_to_Database
             ::  else -> skip
             fi
 
-            goto Cleanup
+            goto Decrypt_return
         }
-
-    Encrypt:
+    
+    Decrypt_return:
 
         atomic {
             
-            if  // From Tenant to Access Control
-            ::  select_case == 1 -> 
+            if
+            ::  tenant_id == 1 -> 
+                k2t1_buff < K2T_MAX 
+                k2t1!d_DEK, temp_e_dek.id-ENC_DUMMY, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
+                k2t1_buff++
+            ::  else -> 
+                k2t2_buff < K2T_MAX
+                k2t2!d_DEK, temp_e_dek.id-ENC_DUMMY, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
+                k2t2_buff++
+            fi
 
-                    k2ac_buff < K2AC_MAX   
-                    k2ac!e_DEK, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
-                    k2ac_buff++
-                
-                // From Access Control to Database
-            ::  select_case == 2 ->
+            goto Cleanup
+        }
+            
+    Assign_KEK_return:
 
-                    k2db_buff < K2DB_MAX 
-                    k2db!e_DEK, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
-                    k2db_buff++
-                
-                // From Database to Tenant
-            ::  select_case == 3 -> 
-                    
-                    v_KEKs[kek_id-1].version = kek_version
-                    v_KEKs[kek_id-1].id = kek_id
-                    // ROTATION CHECK
-                    if
-                    ::  tenant_id == 1 ->
-                        if
-                        ::  v_KEKs[kek_id-1].version == 0 -> 
-                                p_rotated_1 = true
-                        ::  else -> p_rotated_1 = false
-                        fi
-                    ::  tenant_id == 2 ->
-                        if
-                        ::  v_KEKs[kek_id-1].version == 0 -> 
-                                p_rotated_2 = true
-                        ::  else -> p_rotated_2 = false
-                        fi
-                    fi
+        atomic {
 
-
-
-                    temp_e_dek.id = dek_id+ENC_DUMMY
-                    temp_e_dek.ref_id = v_KEKs[kek_id-1].id+ENC_DUMMY
-                    temp_e_dek.ref_version = v_KEKs[kek_id-1].version
-
-                    do
-                    ::  tenant_id == 1 ->
-                        last_enc_1 = !last_enc_1
-                        temp_e_dek.enc_version = last_enc_1 
-
-                        k2t1_buff < K2T_MAX 
-                        k2t1!e_DEK, dek_id, kek_id+ENC_DUMMY, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, id, step+1
-                        k2t1_buff++ 
-                        break
-
-                    ::  tenant_id == 2 ->
-                        
-                        last_enc_2 = !last_enc_2
-                        temp_e_dek.enc_version = last_enc_2
-                        
-                        k2t2_buff < K2T_MAX 
-                        k2t2!e_DEK, dek_id, kek_id+ENC_DUMMY, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, grant, id, step+1
-                        k2t2_buff++ 
-                        break
-                    od
+            if // ack from Tenant was received during concurrent processing
+            ::  tenant_id == 1 && p_assigned_1 -> goto Deny_request
+            ::  tenant_id == 2 && p_assigned_2 -> goto Deny_request
+            ::  else -> skip
             fi
             
+            if
+            ::  tenant_id == 1 -> k2t1_buff < K2T_MAX 
+                k2t1!ass_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
+                k2t1_buff++
+            ::  else -> k2t2_buff < K2T_MAX
+                k2t2!ass_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
+                k2t2_buff++
+            fi
+
             goto Cleanup
         }
 
-    Recrypt:
-           
+    Encrypt_return:
+
+        // From Database to Tenant
         atomic {
-
-            if  // From Tenant to Access Control
-            ::  select_case == 1 -> 
-                    
-                    k2ac_buff < K2AC_MAX 
-                    k2ac!re_DEK, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
-                    k2ac_buff++
                 
-                // From Access Control to Database
-            ::  select_case == 2 -> 
-
-                // "if" decrypts before accessing DB to receive a fresh encryption KEK
-                //  "else" needs a fresh KEK to decrypt, but will use that KEK to encrypt
-
-                if 
-                ::  cache_cleared || v_KEKs[kek_id-1].version == temp_e_dek.ref_version ->
-                // ::  v_KEKs[kek_id-1].id == kek_id && v_KEKs[kek_id-1].version == temp_e_dek.ref_version ->
-                        dek_id = temp_e_dek.id-ENC_DUMMY // decrypted here
-                ::  else -> skip
-                fi
-
-                k2db_buff < K2DB_MAX 
-                k2db!re_DEK, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
-                k2db_buff++
-
-                // From Database to Tenant
-            ::  select_case == 3 ->
-
-                v_KEKs[kek_id-1].id = kek_id
-                v_KEKs[kek_id-1].version = kek_version
-
-                // "if" 1 and 2 where decrypted in case 2 above
-                //  "if" 6 and 7 needed a fresh KEK to be decrypted 
-
-                if // Mainly to ensure that every path is hit
-                ::  dek_id == 1 ->
-                        temp_e_dek.id = dek_id+ENC_DUMMY // encrypted here
-                ::  dek_id == 2 ->
-                        temp_e_dek.id = dek_id+ENC_DUMMY // encrypted here
-                ::  else -> 
-                    if
-                    ::  temp_e_dek.id == 6 -> 
-                            assert(6 < 86) // decrypted and encrypted here
-                    ::  temp_e_dek.id == 7 -> 
-                            assert(6 < 88) // decrypted and encrypted here
-                    fi
-                fi 
-
-                temp_e_dek.ref_id = v_KEKs[kek_id-1].id+ENC_DUMMY
-                temp_e_dek.ref_version = v_KEKs[kek_id-1].version
-
-                do
-                ::  tenant_id == 1 ->
-
-                        last_enc_1 = !last_enc_1
-                        temp_e_dek.enc_version = last_enc_1 
-                        
-                        k2t1_buff < K2T_MAX 
-                        k2t1!re_DEK, dek_id, kek_id+ENC_DUMMY, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, id, step+1
-                        // req_buff-- 
-                        k2t1_buff++ 
-                        break
-
-                ::  tenant_id == 2 ->
-                      
-                        last_enc_2 = !last_enc_2
-                        temp_e_dek.enc_version = last_enc_2
-                        
-                        k2t2_buff < K2T_MAX 
-                        k2t2!re_DEK, dek_id, kek_id+ENC_DUMMY, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, grant, id, step+1
-                        // req_buff-- 
-                        k2t2_buff++ 
-                        break
-                od
+            if
+            ::  msg == e_DEK -> temp_e_dek.id = dek_id+ENC_DUMMY
+            ::  else -> skip
             fi
 
+            temp_e_dek.ref_id = v_KEKs[kek_id-1].id+ENC_DUMMY
+            temp_e_dek.ref_version = v_KEKs[kek_id-1].version
+            
+            do
+            ::  tenant_id == 1 ->
+                last_enc_1 = !last_enc_1
+                temp_e_dek.enc_version = last_enc_1 
+
+                k2t1_buff < K2T_MAX 
+                k2t1!msg, dek_id, kek_id+ENC_DUMMY, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, id, step+1
+                k2t1_buff++ 
+                break
+
+            ::  tenant_id == 2 ->
+                
+                last_enc_2 = !last_enc_2
+                temp_e_dek.enc_version = last_enc_2
+                
+                k2t2_buff < K2T_MAX 
+                k2t2!msg, dek_id, kek_id+ENC_DUMMY, temp_e_dek.id, temp_e_dek.enc_version, temp_e_dek.ref_version, grant, id, step+1
+                k2t2_buff++ 
+                break
+            od
+            
             goto Cleanup
         }
 
@@ -921,7 +843,6 @@ proctype Keystore()
                 k2t1_buff < K2T_MAX 
                 k2t1!deny, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
                 k2t1_buff++
-                // req_buff--
             ::  else -> 
                 if
                 ::  p_assigned_2 && MODEL == 1 ->
@@ -935,7 +856,6 @@ proctype Keystore()
                 k2t2_buff < K2T_MAX 
                 k2t2!deny, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
                 k2t2_buff++
-                // req_buff--
             fi
 
             goto Cleanup
@@ -969,7 +889,7 @@ proctype Keystore()
 proctype Database() {
 
     mtype msg = deny
-    unsigned kek_id : 3, i : 3, tenant_id : 3, dek_id : 2, grant : 2, auth : 1, step : 3
+    unsigned kek_id : 3, i : 3, tenant_id : 3, dek_id : 3, grant : 2, auth : 1, step : 3
     bit id = 1
 
     KEK p_KEKs[NUM_KEKS]
@@ -1004,7 +924,7 @@ proctype Database() {
     Access_KEK:
 
         atomic {
-
+            
             for (i : 0 .. NUM_KEKS-1) {
                 if 
                 ::  p_KEKs[i].id == kek_id ->
@@ -1064,20 +984,20 @@ proctype Database() {
 proctype AccessControl()
 {
     mtype msg = deny
-    unsigned kek_ref : 3, tenant_id : 3, auth : 1, dek_id : 2, grant : 2, assigned_1 : 3, assigned_2 : 3, step : 3
+    unsigned kek_ref : 3, tenant_id : 3, auth : 1, dek_id : 3, grant : 2, assigned_1 : 3, assigned_2 : 3, step : 3
     bit id = 1
     E_DEK temp_e_dek
     
-    atomic {
+    // atomic {
         
-        if
-        ::  MODEL != 1 -> 
-                assigned_1 = 6
-                assigned_2 = 7
-        ::  else -> skip
-        fi
+    //     if
+    //     ::  MODEL != 1 -> 
+    //             assigned_1 = 6
+    //             assigned_2 = 7
+    //     ::  else -> skip
+    //     fi
     
-    }
+    // }
 
     Select_state:
         
@@ -1162,7 +1082,7 @@ proctype AccessControl()
             ::  kek_ref != 6 && kek_ref != 7 -> goto Deny_request
             ::  else -> skip
             fi
-
+            assert((kek_ref == 6 && tenant_id == 1) || (kek_ref == 7 && tenant_id == 2))
             if
             ::  tenant_id == 1 && (kek_ref != assigned_1) -> goto Deny_request
             ::  tenant_id == 2 && (kek_ref != assigned_2) -> 
@@ -1172,7 +1092,7 @@ proctype AccessControl()
                 fi
             ::  else -> skip
             fi
-
+            // printf("AC: %d\n", temp_e_dek.id)
             ac2k_buff < AC2K_MAX
             ac2k!msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
             ac2k_buff++
