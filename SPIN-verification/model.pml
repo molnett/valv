@@ -25,19 +25,18 @@ THE SOFTWARE.
 /**
     MODELS 
     
-    1=Initial Model with some modifications 2=A 3=B 4=C 5=D In the paper.
+    1=A 2=B 3=C 4=D In the paper.
     
-    1: Full operations.
     2: Assignemnt and Encryption.
-    3: Decryption 
-    4: Re-Encryption of encrypted DEKs 
-    5: Tenant 1 assignment and encryption, Tenant 2 only Decrypts encrypted DEKs received from Tenant 1 with different grants.
+    3: Decryption after assignment and encryption has been finalized
+    4: Re-Encryption of envelopes after assignment and encryption has been finalized 
+    5: Tenant 1 assignment and encryption then invalid credentials, Tenant 2 only Decrypts envelopes received from Tenant 1 with different grants.
 
-    If MODEL == 2 then IS_MODEL_2 == 1 
-    If MODEL != 2 then IS_MODEL_2 == 0
+    If MODEL == 1 then IS_MODEL_1 == 1 
+    If MODEL != 1 then IS_MODEL_1 == 0
 */ 
-#define MODEL 4
-#define IS_MODEL_2 0
+#define MODEL 2
+#define IS_MODEL_1 0
 
 #define NUM_DEKS 1
 #define NUM_KEKS 2
@@ -51,7 +50,7 @@ THE SOFTWARE.
 #define K2T_MAX 1
 
 // MODEL 2
-#if IS_MODEL_2
+#if IS_MODEL_1
     #define K2AC_MAX 2
     #define AC2K_MAX 2
     #define K2DB_MAX 2
@@ -65,7 +64,6 @@ THE SOFTWARE.
 
 // REQUEST LIMIT OF CONCURRENT PROCESSING IN KEYSTORE
 #define REQ_MAX 2
-
 
 
 typedef KEK { 
@@ -120,19 +118,19 @@ local bool cache_cleared
 bool p_assigned_1, p_assigned_2, p_enc_1
 bool p_conf = true, p_int = true, p_sync = true, p_protocol = true, p_cache = true
 local bool p_rotated_1 , p_rotated_2, p_enc_2, auth_ks, auth_db, auth_ac, auth_t1, auth_t2, grant_t2
-local unsigned m4_KEK_t1 : 4, m4_KEK_t2 : 4 
+local unsigned m3_KEK_t1 : 4, m3_KEK_t2 : 4 
 
 // LTL claims
-// ltl safety { [](p_conf && p_int && p_protocol && p_sync && p_cache && !p_authentic && (Tenant_1[1]@Decrypt_receive -> p_enc_1) && 
-//                 (Tenant_2[2]@Decrypt_receive -> (p_enc_2 || (grant_t2 && p_enc_1))) && (p_enc_1 -> p_assigned_1) && (p_enc_2 -> p_assigned_2 )) &&
-//                 (Tenant_1[1]@Recrypt_Receive -> p_enc_1) && (Tenant_2[2]@Recrypt_Receive -> p_enc_2) 
-//             }
+ltl safety { [](p_conf && p_int && p_protocol && p_sync && p_cache && !p_authentic && (Tenant_1[1]@Decrypt_receive -> p_enc_1) && 
+                (Tenant_2[2]@Decrypt_receive -> (p_enc_2 || (grant_t2 && p_enc_1))) && (p_enc_1 -> p_assigned_1) && (p_enc_2 -> p_assigned_2 )) &&
+                (Tenant_1[1]@Recrypt_Receive -> p_enc_1) && (Tenant_2[2]@Recrypt_Receive -> p_enc_2) 
+            }
 
 
-// ltl liveness_model_2 { ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
-ltl liveness_model_4 { ([]<>(m4_KEK_t1 == 6) && []<>(m4_KEK_t1 == 8)) && ([]<>(m4_KEK_t2 == 7) && []<>(m4_KEK_t2 == 9))  }
-// ltl liveness_model_3 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) }
-// ltl liveness_model_5 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup))}
+ltl liveness_model_2 { ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
+ltl liveness_model_4 { ([]<>(m3_KEK_t1 == 6) && []<>(m3_KEK_t1 == 8)) && ([]<>(m3_KEK_t2 == 7) && []<>(m3_KEK_t2 == 9))  }
+ltl liveness_model_3 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) }
+ltl liveness_model_5 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup))}
 
 
 
@@ -194,23 +192,11 @@ proctype Tenant_1()
                             t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_assigned_1) ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
-                    ::  !(denied && !p_enc_1) -> 
-                            t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
-                    ::  !(denied && !p_enc_1) ->
-                            t12k!re_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, EMPTY_PASS, id, 1 -> break
-                    od
-                    break
-                ::  MODEL == 2 -> 
-                    do
-                    ::  !(denied && p_assigned_1) -> 
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
-                    ::  !(denied && !p_assigned_1) ->
-                            t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !denied -> 
                             t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, 1 -> break
                     od
                     break
-                ::  MODEL == 3 -> 
+                ::  MODEL == 2 -> 
 
                     if
                     ::  p_enc_1 -> encrypted_DEK.ref_version = !encrypted_DEK.ref_version
@@ -226,17 +212,17 @@ proctype Tenant_1()
                             t12k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
                     od
                     break
-                ::  MODEL == 4 -> 
+                ::  MODEL == 3 -> 
                     do
                     ::  !p_assigned_1 -> 
                             t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  p_assigned_1 && !p_enc_1 ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_enc_1) -> 
-                            t12k!re_DEK, EMPTY_PASS, m4_KEK_t1, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
+                            t12k!re_DEK, EMPTY_PASS, m3_KEK_t1, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
                     od
                     break
-                ::  MODEL == 5 -> 
+                ::  MODEL == 4 -> 
                     do
                     ::  !p_assigned_1 -> 
                             t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
@@ -335,7 +321,7 @@ proctype Tenant_1()
             encrypted_DEK.ref_version = temp_e_dek.ref_version
 
             if
-            ::  MODEL == 4 -> m4_KEK_t1 = encrypted_DEK.ref_id
+            ::  MODEL == 3 -> m3_KEK_t1 = encrypted_DEK.ref_id
             ::  else -> skip
             fi
 
@@ -362,10 +348,10 @@ proctype Tenant_1()
             encrypted_DEK.ref_version = temp_e_dek.ref_version
 
             if
-            ::  MODEL == 4 -> 
+            ::  MODEL == 3 -> 
                 if
-                ::  encrypted_DEK.ref_id == 6 -> m4_KEK_t1 = 8
-                ::  else -> m4_KEK_t1 = 6
+                ::  encrypted_DEK.ref_id == 6 -> m3_KEK_t1 = 8
+                ::  else -> m3_KEK_t1 = 6
                 fi
             ::  else -> skip
             fi
@@ -428,23 +414,11 @@ proctype Tenant_2()
                             t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !(denied && !p_assigned_2) ->
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
-                    ::  !(denied && !p_enc_2) -> 
-                            t22k!d_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant_t2, 1 -> break
-                    ::  !(denied && !p_enc_2) ->
-                            t22k!re_DEK, EMPTY_PASS, encrypted_DEK.ref_id, encrypted_DEK.id, EMPTY_PASS, id, grant_t2, 1 -> break
-                    od
-                    break
-                ::  MODEL == 2 -> 
-                    do
-                    ::  !(denied && p_assigned_2) -> 
-                            t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
-                    ::  !(denied && !p_assigned_2) ->
-                            t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !denied -> 
                             t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, grant_t2, 1 -> break
                     od
                     break
-                ::  MODEL == 3 -> 
+                ::  MODEL == 2 -> 
 
                     if
                     ::  p_enc_2 -> encrypted_DEK.ref_version = !encrypted_DEK.ref_version
@@ -461,17 +435,17 @@ proctype Tenant_2()
                     od
                     break
 
-                ::  MODEL == 4 -> 
+                ::  MODEL == 3 -> 
                     do
                     ::  !p_assigned_2 -> 
                             t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  p_assigned_2 && !p_enc_2  ->
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !(denied && !p_enc_2)
-                            t22k!re_DEK, EMPTY_PASS, m4_KEK_t2, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant_t2, 1 -> break
+                            t22k!re_DEK, EMPTY_PASS, m3_KEK_t2, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant_t2, 1 -> break
                     od
                     break
-                ::  MODEL == 5 -> 
+                ::  MODEL == 4 -> 
                     
                     received_e_DEK.ref_version = !received_e_DEK.ref_version
                     
@@ -579,7 +553,7 @@ proctype Tenant_2()
             encrypted_DEK.ref_version = temp_e_dek.ref_version
             
             if
-            ::  MODEL == 4 -> m4_KEK_t2 = encrypted_DEK.ref_id
+            ::  MODEL == 3 -> m3_KEK_t2 = encrypted_DEK.ref_id
             ::  else -> skip
             fi
 
@@ -607,10 +581,10 @@ proctype Tenant_2()
             encrypted_DEK.ref_version = temp_e_dek.ref_version
 
             if
-            ::  MODEL == 4 -> 
+            ::  MODEL == 3 -> 
                 if
-                ::  encrypted_DEK.ref_id == 7 -> m4_KEK_t2 = 9
-                ::  else -> m4_KEK_t2 = 7
+                ::  encrypted_DEK.ref_id == 7 -> m3_KEK_t2 = 9
+                ::  else -> m3_KEK_t2 = 7
                 fi
             ::  else -> skip
             fi
@@ -657,7 +631,7 @@ proctype Keystore()
 
 
         do
-        ::  MODEL == 3 || MODEL == 5 -> cache_cleared = !cache_cleared -> break
+        ::  MODEL == 2 || MODEL == 4 -> cache_cleared = !cache_cleared -> break
         ::  else -> cache_cleared = cache_cleared -> break
         od
         // exit_atomic = true
@@ -777,7 +751,7 @@ proctype Keystore()
         atomic {
             
             if
-            ::  MODEL == 2 -> 
+            ::  MODEL == 1 -> 
                     k2ac_buff < K2AC_MAX  
                     k2ac!deny, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, step+1  
                     k2ac_buff++
@@ -795,7 +769,7 @@ proctype Keystore()
         atomic {
             
             if
-            ::  MODEL == 2 -> 
+            ::  MODEL == 1 -> 
                     k2db_buff < K2DB_MAX 
                     k2db!deny, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, step+1
                     k2db_buff++
@@ -1054,7 +1028,7 @@ proctype Database() {
             p_KEKs[i].version = !p_KEKs[i].version
             
             if
-            ::  MODEL == 2 -> 
+            ::  MODEL == 1 -> 
                     db2k_buff < DB2K_MAX 
                     db2k!deny, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, step+1
                     db2k_buff++
@@ -1208,7 +1182,7 @@ proctype AccessControl()
             fi
 
             if
-            ::  MODEL == 2 -> 
+            ::  MODEL == 1 -> 
                     ac2k_buff < AC2K_MAX
                     ac2k!deny, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, step+1
                     ac2k_buff++
