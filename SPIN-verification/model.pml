@@ -127,10 +127,10 @@ ltl safety { [](p_conf && p_int && p_protocol && p_sync && p_cache && !p_authent
             }
 
 
-ltl liveness_model_2 { ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
-ltl liveness_model_4 { ([]<>(m3_KEK_t1 == 6) && []<>(m3_KEK_t1 == 8)) && ([]<>(m3_KEK_t2 == 7) && []<>(m3_KEK_t2 == 9))  }
-ltl liveness_model_3 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) }
-ltl liveness_model_5 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup))}
+ltl liveness_model_1 { ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
+ltl liveness_model_2 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) }
+ltl liveness_model_3 { ([]<>(m3_KEK_t1 == 6) && []<>(m3_KEK_t1 == 8)) && ([]<>(m3_KEK_t2 == 7) && []<>(m3_KEK_t2 == 9))  }
+ltl liveness_model_4 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup))}
 
 
 
