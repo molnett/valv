@@ -18,7 +18,7 @@ If MODEL == 1 then IS_MODEL_1 == 1 <br/>
 If MODEL != 1 then IS_MODEL_1 == 0<br/>
 
 ## To Run and Verify
-Most of this can be done with an external tool such as iSSPIN, additional information found [here](https://spinroot.com/spin/Man/README.html).   <br />
+Most of this can be done with an external tool such as iSPIN, additional information found [here](https://spinroot.com/spin/Man/README.html).   <br />
 
 **Run Code**<br />
 spin -T model.pml - Regular run that will halt on error and print any statements in the code. <br />
