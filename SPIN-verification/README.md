@@ -30,8 +30,8 @@ gcc -DMEMLIM=N -O2 -DXUSAFE -DCOLLAPSE -DNFAIR=3 (-DSAFETY) -w -o pan pan.c <br 
 -DSAFETY used when verifying safety. <br/>
 
 **Verify**<br />
-./pan -mN (-a -f (-N claim) ) <br />
-In -mN, N is an integer for max depth, however -N is a flag to specify which claim to verify.
-Parenthesis used when verifying liveness. <br/>
+./pan -mN (-a -f) (-N claim)  <br />
+In -mN, N is an integer for max depth, however -N is a flag to specify which claim to verify, e.g ./pan -m1000000  -N safety <br/>
+-a -f used when verifying liveness. <br/>
 
 
