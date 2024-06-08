@@ -34,6 +34,8 @@ THE SOFTWARE.
 
     If MODEL == 1 then IS_MODEL_1 == 1 
     If MODEL != 1 then IS_MODEL_1 == 0
+
+    Model 3 uses dek_id field in messages as an additional kek_ref field.
 */ 
 #define MODEL 2
 #define IS_MODEL_1 0
@@ -128,9 +130,9 @@ ltl safety { [](p_conf && p_int && p_protocol && p_sync && p_cache && !p_authent
 
 
 ltl liveness_model_1 { ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
-ltl liveness_model_2 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) }
+ltl liveness_model_2 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Cleanup) -> <>(db2k == 0)) }
 ltl liveness_model_3 { ([]<>(m3_KEK_t1 == 6) && []<>(m3_KEK_t1 == 8)) && ([]<>(m3_KEK_t2 == 7) && []<>(m3_KEK_t2 == 9))  }
-ltl liveness_model_4 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup))}
+ltl liveness_model_4 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_1[1]@Receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Cleanup) -> <>(db2k == 0))}
 
 
 
@@ -219,7 +221,7 @@ proctype Tenant_1()
                     ::  p_assigned_1 && !p_enc_1 ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_enc_1) -> 
-                            t12k!re_DEK, EMPTY_PASS, m3_KEK_t1, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
+                            t12k!re_DEK, encrypted_DEK.ref_id, m3_KEK_t1, encrypted_DEK.id, encrypted_DEK.ref_version, id, 1 -> break
                     od
                     break
                 ::  MODEL == 4 -> 
@@ -442,7 +444,7 @@ proctype Tenant_2()
                     ::  p_assigned_2 && !p_enc_2  ->
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !(denied && !p_enc_2)
-                            t22k!re_DEK, EMPTY_PASS, m3_KEK_t2, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant_t2, 1 -> break
+                            t22k!re_DEK, encrypted_DEK.ref_id, m3_KEK_t2, encrypted_DEK.id, encrypted_DEK.ref_version, id, grant_t2, 1 -> break
                     od
                     break
                 ::  MODEL == 4 -> 
@@ -612,13 +614,13 @@ proctype Tenant_2()
 proctype Keystore()
 {
     mtype msg = deny
-    unsigned dek_id : 3, kek_id : 3, kek_ref : 4, tenant_id : 3, grant : 2, kek_version : 1, step : 3, array_size : 3 = 4
+    unsigned dek_id : 4, kek_id : 3, kek_ref : 4, tenant_id : 3, grant : 2, kek_version : 1, step : 3, array_size : 3 = 4
     bit id = 1
     bit last_enc_1, last_enc_2, turn 
     bool db_skip_1, db_skip_2
     
     if
-    ::  MODEL != 4 -> 
+    ::  MODEL != 3 -> 
             array_size = NUM_KEKS
     ::  else -> skip
     fi
@@ -767,7 +769,10 @@ proctype Keystore()
     Send_to_Database:
                     
         atomic {
-            
+            if
+            ::  msg == re_DEK -> dek_id = dek_id-ENC_DUMMY
+            ::  else -> skip
+            fi
             if
             ::  MODEL == 1 -> 
                     k2db_buff < K2DB_MAX 
@@ -824,7 +829,7 @@ proctype Keystore()
     Decrypt_return:
 
         atomic {
-            
+
             if
             ::  tenant_id == 1 -> 
                     k2t1_buff < K2T_MAX 
@@ -863,6 +868,7 @@ proctype Keystore()
             goto Cleanup
         }
 
+    //Also used for Recrypt
     Encrypt_return:
 
         // From Database to Tenant
@@ -870,6 +876,33 @@ proctype Keystore()
                 
             if
             ::  msg == e_DEK -> temp_e_dek.id = dek_id+ENC_DUMMY
+            ::  msg == re_DEK && dek_id != kek_id -> 
+                    db2k_buff > 0  
+                    db2k?msg, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, kek_version, auth_ks, step 
+                    db2k_buff--
+                    // Update KEKs
+                    if
+                    ::  msg == deny -> goto Deny_request
+                    ::  else -> 
+                            v_KEKs[kek_id-1].id = kek_id
+                            v_KEKs[kek_id-1].version = kek_version
+                    fi
+                    
+                    // ROTATION CHECK
+                    if
+                    ::  tenant_id == 1 ->
+                        if
+                        ::  v_KEKs[kek_id-1].version == 0 -> 
+                                p_rotated_1 = true
+                        ::  else -> p_rotated_1 = false
+                        fi
+                    ::  tenant_id == 2 ->
+                        if
+                        ::  v_KEKs[kek_id-1].version == 0 -> 
+                                p_rotated_2 = true
+                        ::  else -> p_rotated_2 = false
+                        fi
+                    fi
             ::  else -> skip
             fi
 
@@ -967,7 +1000,7 @@ proctype Database() {
     bit id = 1
 
     if
-    ::  MODEL != 4 -> 
+    ::  MODEL != 3 -> 
             array_size = NUM_KEKS
     ::  else -> skip
     fi
@@ -1013,7 +1046,11 @@ proctype Database() {
             i = 0
             for (i : 0 .. array_size-1) {
                 if 
-                ::  p_KEKs[i].id == kek_id -> goto Send
+                ::  p_KEKs[i].id == kek_id -> 
+                        if
+                        ::  msg == re_DEK -> goto Send_Recrypt
+                        ::  else -> goto Send
+                        fi
                 ::  else -> skip
                 fi
             }
@@ -1039,6 +1076,30 @@ proctype Database() {
             db2k_buff++
 
             goto Cleanup
+        }
+
+    Send_Recrypt:
+        atomic {
+
+            if
+            ::  dek_id != kek_id && i > 1 -> i = i-2
+            ::  dek_id != kek_id && i < 2 -> i = i+2
+            ::  else -> goto Send
+            fi
+
+            p_KEKs[i].version = !p_KEKs[i].version
+            
+            db2k_buff < DB2K_MAX 
+            db2k!msg, kek_id, p_KEKs[i].id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, p_KEKs[i].version, id, step+1
+            db2k_buff++
+
+            if
+            ::  dek_id != kek_id && i > 1 -> i = i-2
+            ::  dek_id != kek_id && i < 2 -> i = i+2
+            ::  else -> skip
+            fi
+
+            goto Send
         }
 
     Deny_request:
@@ -1078,7 +1139,7 @@ proctype Database() {
 proctype AccessControl()
 {
     mtype msg = deny
-    unsigned kek_ref : 4, tenant_id : 3, dek_id : 3, grant : 1, assigned_1 : 3, assigned_2 : 3, step : 3
+    unsigned kek_ref : 4, tenant_id : 3, dek_id : 4, grant : 1, assigned_1 : 3, assigned_2 : 3, step : 3
     bit id = 1
     E_DEK temp_e_dek
     
@@ -1168,6 +1229,18 @@ proctype AccessControl()
             
             if
             ::  kek_ref < 6 -> goto Deny_request
+            ::  else -> skip
+            fi
+
+            if
+            ::  msg == re_DEK ->
+                if
+                ::  tenant_id == 1 && (kek_ref != assigned_1 && dek_id != assigned_1 + 2 && dek_id != assigned_1 && kek_ref != assigned_1 + 2) -> 
+                        goto Deny_request
+                ::  tenant_id == 2 && (kek_ref != assigned_2 && dek_id != assigned_2 + 2 && dek_id != assigned_2 && kek_ref != assigned_2 + 2) -> 
+                        goto Deny_request
+                ::  else -> skip
+                fi
             ::  else -> skip
             fi
 
