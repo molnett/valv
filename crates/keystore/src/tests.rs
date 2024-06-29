@@ -15,6 +15,9 @@ mod tests {
     use crate::valv::keystore::v1::master_key_management_service_client::MasterKeyManagementServiceClient;
     use tokio::time::sleep;
 
+    const SERVER_ADDR: &str = "0.0.0.0:8080";
+    const CLIENT_ADDR: &str = "http://127.0.0.1:8080";
+
     #[tokio::test]
     async fn server_test_suite() {
         let _guard = unsafe { foundationdb::boot() };
@@ -35,6 +38,40 @@ mod tests {
         println!("Encrypt/decrypt test passed");
     }
 
+    async fn setup_server() -> anyhow::Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>> {
+        let addr = SERVER_ADDR.parse()?;
+        let mut keystore = Keystore::new().await;
+        let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
+            .as_bytes()
+            .try_into()
+            .unwrap();
+        keystore.set_master_key(master_key_bytes);
+        let api = API { keystore: Arc::new(keystore) };
+        let svc = MasterKeyManagementServiceServer::new(api);
+        Ok(tokio::spawn(Server::builder().add_service(svc).serve(addr)))
+    }
+
+    async fn setup_client() -> anyhow::Result<MasterKeyManagementServiceClient<tonic::transport::Channel>> {
+        let channel = tonic::transport::Channel::from_static(CLIENT_ADDR)
+            .connect()
+            .await?;
+        Ok(MasterKeyManagementServiceClient::new(channel))
+    }
+
+    async fn wait_for_server() -> anyhow::Result<()> {
+        for _ in 0..10 {
+            if tonic::transport::Channel::from_static(CLIENT_ADDR)
+                .connect()
+                .await
+                .is_ok()
+            {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        anyhow::bail!("Failed to connect to server")
+    }
+
     async fn test_keystore() -> anyhow::Result<()> {
         let keystore = Keystore::new().await;
         let key = keystore.create_key("test".to_string()).await;
@@ -45,43 +82,10 @@ mod tests {
     }
 
     async fn test_create_master_key() -> anyhow::Result<()> {
-        // Start the server
-        let addr = "0.0.0.0:8080".parse()?;
-        let keystore = Keystore::new().await;
-        let api = API {
-            keystore: Arc::new(keystore),
-        };
-        let svc = MasterKeyManagementServiceServer::new(api);
-        let server_handle = tokio::spawn(Server::builder().add_service(svc).serve(addr));
-
-        // try to connect to the server
-        let mut chan_is_err = false;
-        for _ in 0..10 {
-            let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
-                .connect()
-                .await;
-
-            match channel {
-                Ok(_) => {
-                    chan_is_err = true;
-                    break;
-                }
-                Err(_) => sleep(Duration::from_millis(10)).await,
-            }
-            println!("Waiting for server to start...");
-        }
-        if !chan_is_err {
-            panic!("Failed to connect to server");
-        }
-
-        // Wait for the server to start (adjust sleep duration as needed)
-        // Create a client
-        let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
-            .connect()
-            .await
-            .expect("Failed to connect to server");
-
-        let mut client = MasterKeyManagementServiceClient::new(channel);
+        let server_handle = setup_server().await?;
+        wait_for_server().await?;
+        
+        let mut client = setup_client().await?;
 
         // Make the gRPC call
         let request = tonic::Request::new(CreateMasterKeyRequest {
@@ -100,48 +104,11 @@ mod tests {
     }
 
     // Similar tests can be written for other API methods
-    async fn test_encrypt_decrypt() {
-        // Start the server
-        let addr = "0.0.0.0:8080".parse().unwrap();
-        let mut keystore = Keystore::new().await;
-        let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
-            .as_bytes()
-            .try_into()
-            .unwrap();
-        keystore.set_master_key(master_key_bytes);
-        let api = API {
-            keystore: Arc::new(keystore),
-        };
-        let svc = MasterKeyManagementServiceServer::new(api);
-        let server_handle = tokio::spawn(Server::builder().add_service(svc).serve(addr));
-
-        let mut chan_is_err = false;
-        for _ in 0..10 {
-            let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
-                .connect()
-                .await;
-
-            match channel {
-                Ok(_) => {
-                    chan_is_err = true;
-                    break;
-                }
-                Err(_) => sleep(Duration::from_millis(10)).await,
-            }
-            println!("Waiting for server to start...");
-        }
-        if !chan_is_err {
-            panic!("Failed to connect to server");
-        }
-
-        // Wait for the server to start (adjust sleep duration as needed)
-        // Create a client
-        let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8080")
-            .connect()
-            .await
-            .expect("Failed to connect to server");
-
-        let mut client = MasterKeyManagementServiceClient::new(channel);
+    async fn test_encrypt_decrypt() -> anyhow::Result<()> {
+        let server_handle = setup_server().await?;
+        wait_for_server().await?;
+        
+        let mut client = setup_client().await?;
 
         // Make the gRPC call
         let request = tonic::Request::new(CreateMasterKeyRequest {
@@ -205,9 +172,8 @@ mod tests {
 
         // Stop the server
         server_handle.abort();
-        // Stop the server
-        server_handle.abort();
+        
+        Ok(())
     }
-
     // Similar tests can be written for other API methods
 }
