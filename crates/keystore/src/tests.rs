@@ -34,7 +34,7 @@ mod tests {
         println!("Create master key test passed\n");
 
         println!("Testing encrypt/decrypt");
-        test_encrypt_decrypt().await;
+        test_encrypt_decrypt().await.expect("test_encrypt_decrypt error");
         println!("Encrypt/decrypt test passed");
     }
 
