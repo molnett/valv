@@ -1,10 +1,13 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use foundationdb::{
-    directory::{Directory},
+    directory::Directory,
     tuple::{unpack, TuplePack},
     FdbError, RangeOption,
 };
+use prost::Message;
+
+use crate::gen::keystore::internal;
 
 use super::interface::KeystoreStorage;
 
@@ -63,7 +66,7 @@ impl FoundationDB {
         trx: &foundationdb::Transaction,
         tenant: &str,
         key_id: &str,
-        version: u8,
+        version: u32,
     ) -> Vec<u8> {
         let directory = foundationdb::directory::DirectoryLayer::default();
 
@@ -91,6 +94,7 @@ impl FoundationDB {
         ];
 
         let key = tenant_subspace.pack(&path).unwrap();
+
         return key;
     }
 }
@@ -101,15 +105,15 @@ impl KeystoreStorage for FoundationDB {
         &self,
         tenant: &str,
         key_id: &str,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
+    ) -> anyhow::Result<internal::Key> {
         let trx = self.database.create_trx()?;
         let key = self.get_metadata_fdb_key(&trx, tenant, key_id).await;
 
         let key_value = trx.get(&key, false).await?;
         match key_value {
             Some(key_value) => {
-                let test: Vec<u8> = unpack(&key_value).expect("Failed to unpack key value");
-                Ok(Some(test))
+                let key = internal::Key::decode(&key_value[..]).expect("Failed to decode key");
+                Ok(key)
             }
             None => Err(anyhow!("Key not found")),
         }
@@ -118,24 +122,39 @@ impl KeystoreStorage for FoundationDB {
     async fn update_key_metadata(
         &self,
         tenant: &str,
-        key_id: &str,
-        value: Vec<u8>,
+        key: internal::Key,
     ) -> anyhow::Result<()> {
         let trx = self.database.create_trx()?;
-        let key = self.get_metadata_fdb_key(&trx, tenant, key_id).await;
+        let path = self.get_metadata_fdb_key(&trx, tenant, &key.key_id).await;
 
-        trx.set(&key, &value.pack_to_vec());
+        trx.set(&path, &key.encode_to_vec());
         trx.commit().await.unwrap();
 
         Ok(())
     }
 
-    async fn get_key_versions(
+    async fn get_key_version(
         &self,
         tenant: &str,
         key_id: &str,
-        value: Vec<u8>,
-    ) -> anyhow::Result<Vec<Vec<u8>>> {
+        version_id: u32,
+    ) -> anyhow::Result<internal::KeyVersion> {
+        let trx = self.database.create_trx()?;
+        
+        let version_key = self.get_version_fdb_key(&trx, tenant, key_id, version_id).await;
+
+        let key_value = trx.get(&version_key, false).await?;
+
+        match key_value {
+            Some(key_value) => {
+                let version = internal::KeyVersion::decode(&key_value[..]).expect("Failed to decode key");
+                Ok(version)
+            }
+            None => Err(anyhow!("Key not found")),
+        }
+    }
+
+    async fn get_key_versions(&self, tenant: &str, key_id: &str) -> anyhow::Result<Vec<internal::KeyVersion>> {
         let trx = self.database.create_trx()?;
         let directory = foundationdb::directory::DirectoryLayer::default();
 
@@ -165,24 +184,29 @@ impl KeystoreStorage for FoundationDB {
             .await
             .expect("failed to get key versions");
 
-        let key_versions: Vec<Vec<u8>> = vec![];
+        let mut key_versions: Vec<internal::KeyVersion> = vec![];
 
         for key_value in key_values.iter() {
-            println!("{:?}", key_value.key());
-            //let version_data: Vec<u8> = unpack(&key_value.value()).expect("failed to decode key version");
+            let test: Vec<u8> = unpack(&key_value.value()).expect("Failed to unpack key value");
+            let version = internal::KeyVersion::decode(&test[..]).expect("Failed to decode key version");
+            key_versions.push(version);
         }
 
-        Ok(vec![])
+        Ok(key_versions)
     }
 
     async fn append_key_version(
         &self,
         tenant: &str,
-        key_id: &str,
-        value: Vec<u8>,
+        key: internal::Key,
+        key_version: internal::KeyVersion
     ) -> anyhow::Result<()> {
         let trx = self.database.create_trx()?;
-        let key = self.get_metadata_fdb_key(&trx, tenant, key_id).await;
+        
+        let version_key = self.get_version_fdb_key(&trx, tenant, &key.key_id, key_version.version).await;
+
+        trx.set(&version_key, &key_version.encode_to_vec());
+        trx.commit().await.unwrap();
 
         Ok(())
     }
@@ -191,7 +215,8 @@ impl KeystoreStorage for FoundationDB {
         &self,
         tenant: &str,
         key_id: &str,
-        value: Vec<u8>,
+        version_id: u32,
+        version: internal::KeyVersion
     ) -> anyhow::Result<()> {
         todo!()
     }

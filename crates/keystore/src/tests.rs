@@ -19,18 +19,27 @@ mod tests {
     async fn server_test_suite() {
         let _guard = unsafe { foundationdb::boot() };
 
+        println!("Running server test suite");
+        println!("Testing keystore");
         test_keystore().await.expect("test_keystore error");
+        println!("Keystore test passed\n");
+
+        println!("Testing create master key");
         test_create_master_key()
             .await
             .expect("test_create_master_key error");
+        println!("Create master key test passed\n");
+
+        println!("Testing encrypt/decrypt");
         test_encrypt_decrypt().await;
+        println!("Encrypt/decrypt test passed");
     }
 
     async fn test_keystore() -> anyhow::Result<()> {
         let keystore = Keystore::new().await;
-        let key = keystore.create_crypto_key("test".to_string()).await;
-        let key_metadata = keystore.get_crypto_key(key.name).await;
-        assert_eq!(key_metadata.unwrap().name, "test");
+        let key = keystore.create_key("test".to_string()).await;
+        let key_metadata = keystore.get_key(key.key_id).await;
+        assert_eq!(key_metadata.unwrap().key_id, "test");
 
         Ok(())
     }
@@ -94,7 +103,12 @@ mod tests {
     async fn test_encrypt_decrypt() {
         // Start the server
         let addr = "0.0.0.0:8080".parse().unwrap();
-        let keystore = Keystore::new().await;
+        let mut keystore = Keystore::new().await;
+        let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
+            .as_bytes()
+            .try_into()
+            .unwrap();
+        keystore.set_master_key(master_key_bytes);
         let api = API {
             keystore: Arc::new(keystore),
         };
@@ -152,7 +166,7 @@ mod tests {
             encrypt_response.get_ref().name,
             response.get_ref().master_key.as_ref().unwrap().name
         );
-        assert_eq!(original_ciphertext.len(), 60);
+        assert_eq!(original_ciphertext.len(), 64);
 
         // Make the gRPC call to decrypt with the original master key
         let decrypt_request = tonic::Request::new(DecryptRequest {
@@ -175,7 +189,10 @@ mod tests {
 
         // Assert the response
         assert_eq!(response.get_ref().master_key.is_some(), true);
+
+
         // Make the gRPC call to decrypt with another master key
+        println!("Decrypting with the wrong key, should fail");
         let decrypt_request_another_key = tonic::Request::new(DecryptRequest {
             master_key_id: "another_key".to_string(),
             ciphertext: original_ciphertext,

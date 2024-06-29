@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package keystore.internal;
+import "google/protobuf/timestamp.proto";
+
+message Key {
+  string key_id = 1;
+  string primary_version_id = 2;
+  string purpose = 3; // e.g., "ENCRYPT_DECRYPT", "SIGN_VERIFY"
+  google.protobuf.Timestamp creation_time = 4;
+}
+
+enum KeyVersionState {
+  KEY_VERSION_STATE_UNSPECIFIED = 0;
+  KEY_VERSION_STATE_ENABLED = 1;
+  KEY_VERSION_STATE_DISABLED = 2;
+  KEY_VERSION_STATE_DESTROY_SCHEDULED = 3;
+  KEY_VERSION_STATE_DESTROYED = 4;
+}
+
+message KeyVersion {
+  string key_id = 1;
+  uint32 version = 2;
+  bytes key_material = 3;
+  google.protobuf.Timestamp creation_time = 4;
+  google.protobuf.Timestamp destruction_time = 5;
+  KeyVersionState state = 6;
+  string algorithm = 7; // e.g., "AES_256", "RSA_2048"
+}

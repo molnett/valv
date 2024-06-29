@@ -1,4 +1,11 @@
 // @generated
+pub mod keystore {
+    // @@protoc_insertion_point(attribute:keystore.internal)
+    pub mod internal {
+        include!("keystore.internal.rs");
+        // @@protoc_insertion_point(keystore.internal)
+    }
+}
 pub mod valv {
     pub mod keystore {
         // @@protoc_insertion_point(attribute:valv.keystore.v1)
