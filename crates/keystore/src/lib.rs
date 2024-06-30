@@ -1,5 +1,3 @@
-use core::time;
-use std::{collections::HashMap, sync::RwLock};
 
 use boring::error::ErrorStack;
 use gen::keystore::internal;
@@ -185,12 +183,12 @@ impl KeystoreAPI for Keystore {
     }
 
     async fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack> {
-        let (mut key_version_id, remainder) = ciphertext.split_at(4);
+        let (key_version_id, remainder) = ciphertext.split_at(4);
         let (iv, remainder) = remainder.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
         let key = self.db.get_key_metadata("molnett", &key_name).await.unwrap();
-        let mut key_version_id = std::io::Cursor::new(key_version_id).get_u32();
+        let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
         let key_version = self.db.get_key_version("molnett", &key.key_id, key_version_id).await.unwrap();
 
         let (kv_iv, kv_remainder) = key_version.key_material.split_at(12);
