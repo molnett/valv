@@ -37,8 +37,8 @@ THE SOFTWARE.
 
     Model 3 uses dek_id field in messages as an additional kek_ref field.
 */ 
-#define MODEL 2
-#define IS_MODEL_1 0
+#define MODEL 1
+#define IS_MODEL_1 1
 
 #define NUM_DEKS 1
 #define NUM_KEKS 2
@@ -49,7 +49,6 @@ THE SOFTWARE.
 
 // CHANNEL CAPS
 #define T2K_MAX 1
-#define K2T_MAX 1
 
 // MODEL 2
 #if IS_MODEL_1
@@ -57,11 +56,13 @@ THE SOFTWARE.
     #define AC2K_MAX 2
     #define K2DB_MAX 2
     #define DB2K_MAX 2
+    #define K2T_MAX 2
 #else
     #define K2AC_MAX 1
     #define AC2K_MAX 1
     #define K2DB_MAX 1
     #define DB2K_MAX 1
+    #define K2T_MAX 1
 #endif
 
 // REQUEST LIMIT OF CONCURRENT PROCESSING IN KEYSTORE
@@ -81,7 +82,7 @@ typedef E_DEK { /* Encrypted */
     bit ref_version
 }
 
-mtype = { e_DEK, d_DEK, re_DEK, ass_KEK, ass_KEK2, deny }
+mtype = { e_DEK, d_DEK, re_DEK, a_KEK, a_KEK2, deny }
 
 // t1: Tenant 1
 // t2: Tenant 2
@@ -115,7 +116,7 @@ local bool cache_cleared
 
 // LTL variables
 #define p_authentic (((Keystore[4]@Send_to_Access_Control || Keystore[4]@Send_to_Database || Keystore[4]@Encrypt_return || Keystore[4]@Decrypt_return || Keystore[4]@Assign_KEK_return) && !auth_ks) || \
-                    (Database[3]@Access_KEK && !auth_db) || (AccessControl[5]@Select_state && !auth_ac) || (Tenant_1[1]@Receive && !auth_t1) || (Tenant_2[2]@Receive && !auth_t2))
+                    (Database[3]@Access_KEK && !auth_db) || (AccessControl[5]@Select_state && !auth_ac))
 
 bool p_assigned_1, p_assigned_2, p_enc_1
 bool p_conf = true, p_int = true, p_sync = true, p_protocol = true, p_cache = true
@@ -130,9 +131,9 @@ ltl safety { [](p_conf && p_int && p_protocol && p_sync && p_cache && !p_authent
 
 
 ltl liveness_model_1 { ([]<>(p_rotated_1) && []<>(!p_rotated_1)) && ([]<>(p_rotated_2) && []<>(!p_rotated_2)) }
-ltl liveness_model_2 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Cleanup) -> <>(db2k == 0)) }
+ltl liveness_model_2 { ([]<>(Tenant_2[2]@Decrypt_receive) && []<>(Tenant_1[1]@Decrypt_receive)) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) && ((Database[3]@Cleanup) -> <>(db2k == 0)) }
 ltl liveness_model_3 { ([]<>(m3_KEK_t1 == 6) && []<>(m3_KEK_t1 == 8)) && ([]<>(m3_KEK_t2 == 7) && []<>(m3_KEK_t2 == 9))  }
-ltl liveness_model_4 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_1[1]@Receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Cleanup) -> <>(db2k == 0))}
+ltl liveness_model_4 {<>[]!(Tenant_1[1]@Encrypt_receive || Tenant_1[1]@Assign_KEK_receive) && []<>(Tenant_1[1]@Receive) && []<>(Tenant_2[2]@Decrypt_receive) && ((Database[3]@Access_KEK) -> <>(Database[3]@Cleanup)) && ((Database[3]@Cleanup) -> <>(db2k == 0))}
 
 
 
@@ -191,11 +192,11 @@ proctype Tenant_1()
                 ::  MODEL == 1 -> 
                     do
                     ::  !(denied && p_assigned_1) -> 
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
+                            t12k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_assigned_1) ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !denied -> 
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, 1 -> break
+                            t12k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, 1 -> break
                     od
                     break
                 ::  MODEL == 2 -> 
@@ -207,7 +208,7 @@ proctype Tenant_1()
 
                     do
                     ::  !p_assigned_1 -> 
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
+                            t12k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  p_assigned_1 && !p_enc_1 ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_enc_1) -> 
@@ -217,7 +218,7 @@ proctype Tenant_1()
                 ::  MODEL == 3 -> 
                     do
                     ::  !p_assigned_1 -> 
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
+                            t12k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  p_assigned_1 && !p_enc_1 ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  !(denied && !p_enc_1) -> 
@@ -227,11 +228,11 @@ proctype Tenant_1()
                 ::  MODEL == 4 -> 
                     do
                     ::  !p_assigned_1 -> 
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
+                            t12k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  p_assigned_1 && !p_enc_1 ->
                             t12k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, 1 -> break
                     ::  p_enc_1 ->
-                            t12k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, 1 -> break
+                            t12k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, 1 -> break
                     od
                     break
                 od
@@ -251,19 +252,19 @@ proctype Tenant_1()
             if
             ::  msg == deny -> 
 
-                    denied = true
+                denied = true
 
-                    if
-                    ::  (step % 2) != 0 -> p_protocol = false
-                    ::  else -> skip
-                    fi
+                if
+                ::  (step % 2) != 0 -> p_protocol = false
+                ::  else -> skip
+                fi
            
             ::  else ->
 
                 denied = false
             
                 if
-                ::  msg == ass_KEK -> goto Assign_KEK_receive
+                ::  msg == a_KEK -> goto Assign_KEK_receive
                 ::  msg == d_DEK -> goto Decrypt_receive
                 ::  msg == e_DEK -> goto Encrypt_receive
                 ::  msg == re_DEK -> goto Recrypt_Receive
@@ -413,11 +414,11 @@ proctype Tenant_2()
                 ::  MODEL == 1 -> 
                     do
                     ::  !(denied && p_assigned_2) -> 
-                            t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
+                            t22k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !(denied && !p_assigned_2) ->
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !denied -> 
-                            t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, grant_t2, 1 -> break
+                            t22k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, grant_t2, 1 -> break
                     od
                     break
                 ::  MODEL == 2 -> 
@@ -429,7 +430,7 @@ proctype Tenant_2()
 
                     do
                     ::  !p_assigned_2 -> 
-                            t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
+                            t22k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  p_assigned_2 && !p_enc_2  ->
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !(denied & !p_enc_2) ->
@@ -440,7 +441,7 @@ proctype Tenant_2()
                 ::  MODEL == 3 -> 
                     do
                     ::  !p_assigned_2 -> 
-                            t22k!ass_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
+                            t22k!a_KEK, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  p_assigned_2 && !p_enc_2  ->
                             t22k!e_DEK, dek_id, assigned_KEK, EMPTY_PASS, EMPTY_PASS, id, grant_t2, 1 -> break
                     ::  !(denied && !p_enc_2)
@@ -494,7 +495,7 @@ proctype Tenant_2()
                 denied = false
                
                 if
-                ::  msg == ass_KEK -> goto Assign_KEK_receive
+                ::  msg == a_KEK -> goto Assign_KEK_receive
                 ::  msg == d_DEK -> goto Decrypt_receive
                 ::  msg == e_DEK -> goto Encrypt_receive
                 ::  msg == re_DEK -> goto Recrypt_Receive
@@ -529,7 +530,7 @@ proctype Tenant_2()
             // PROTOCOL OR INTEGRITY VIOLATION
             if
             ::  step != 4 && step != 6 -> p_protocol = false
-            ::  !(dek_id == temp_dek || (grant_t2 && temp_dek == 1))-> p_int = false
+            ::  !(dek_id == temp_dek || (grant_t2 && temp_dek == 1)) -> p_int = false
             ::  else -> skip
             fi
 
@@ -636,12 +637,11 @@ proctype Keystore()
         ::  MODEL == 2 || MODEL == 4 -> cache_cleared = !cache_cleared -> break
         ::  else -> cache_cleared = cache_cleared -> break
         od
-        // exit_atomic = true
 
         atomic {
 
             do  //FROM AC
-            ::  ac2k_buff > 0 && db2k_buff == 0-> ac2k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, auth_ks, step -> ac2k_buff-- ->  
+            ::  ac2k_buff > 0 && db2k_buff == 0 -> ac2k?msg, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, auth_ks, step -> ac2k_buff-- ->  
 
                 // PROTOCOL OR AUTHENTICATION VIOLATION
                 if
@@ -649,8 +649,8 @@ proctype Keystore()
                 ::  else -> skip
                 fi
                 if
-                ::  msg == ass_KEK2 && step != 7 -> p_protocol = false
-                ::  msg != ass_KEK2 && msg != deny && step != 3 -> p_protocol = false
+                ::  msg == a_KEK2 && step != 7 -> p_protocol = false
+                ::  msg != a_KEK2 && msg != deny && step != 3 -> p_protocol = false
                 ::  msg == deny && step != 7 && step != 3 -> p_protocol = false
                 ::  else -> skip
                 fi
@@ -661,14 +661,14 @@ proctype Keystore()
                 fi
 
                 do
-                ::  msg == ass_KEK2 -> goto Assign_KEK_return
+                ::  msg == a_KEK2 -> goto Assign_KEK_return
                 ::  msg == d_DEK -> goto Decrypt_Database_Check  
                 ::  msg == deny -> goto Deny_request
-                ::  msg == ass_KEK -> kek_id = tenant_id -> break
-                ::  else -> break
+                ::  msg == a_KEK -> kek_id = tenant_id -> goto Send_to_Database
+                ::  else -> goto Send_to_Database
                 od
 
-                goto Send_to_Database
+                
                
                 //FROM DB
             ::  db2k_buff > 0 -> db2k?msg, dek_id, kek_id, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, kek_version, auth_ks, step -> db2k_buff-- ->  
@@ -705,8 +705,8 @@ proctype Keystore()
                 fi
 
                 do
-                ::  msg == ass_KEK -> 
-                        msg = ass_KEK2 
+                ::  msg == a_KEK -> 
+                        msg = a_KEK2 
                         kek_ref = kek_id+ENC_DUMMY 
                         goto Send_to_Access_Control 
                 ::  msg == d_DEK -> goto Decrypt_return  
@@ -810,8 +810,8 @@ proctype Keystore()
             if
             ::  !(v_KEKs[kek_id-1].version == 1 && temp_e_dek.ref_version == 0) -> 
                 if
-                ::  tenant_id == 1 -> p_cache = (db_skip_1 || cache_cleared)
-                ::  tenant_id == 2 -> p_cache = (db_skip_2 || cache_cleared)  
+                ::  tenant_id == 1 -> p_cache = (db_skip_1 || cache_cleared) && !(db_skip_1 && cache_cleared)
+                ::  tenant_id == 2 -> p_cache = (db_skip_2 || cache_cleared) && !(db_skip_2 && cache_cleared) 
                 fi
             ::  else -> skip         
             fi
@@ -856,19 +856,33 @@ proctype Keystore()
             
             if
             ::  tenant_id == 1 -> 
+                if
+                ::  MODEL == 1 -> 
                     k2t1_buff < K2T_MAX 
-                    k2t1!ass_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
+                    k2t1!a_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, 0, step+1
                     k2t1_buff++
+                ::  else -> skip
+                fi
+                k2t1_buff < K2T_MAX 
+                k2t1!a_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, id, step+1
+                k2t1_buff++
             ::  else -> 
+                if
+                ::  MODEL == 1 -> 
                     k2t2_buff < K2T_MAX
-                    k2t2!ass_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
+                    k2t2!a_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, 0, step+1
                     k2t2_buff++
+                ::  else -> skip
+                fi
+                k2t2_buff < K2T_MAX
+                k2t2!a_KEK, EMPTY_PASS, kek_ref, EMPTY_PASS, EMPTY_PASS, EMPTY_PASS, grant, id, step+1
+                k2t2_buff++
             fi
 
             goto Cleanup
         }
 
-    //Also used for Recrypt
+    // Also used for Recrypt
     Encrypt_return:
 
         // From Database to Tenant
@@ -944,7 +958,7 @@ proctype Keystore()
                 ::  p_assigned_1 && MODEL == 1 ->
                     // SYNCHRONIZATION VIOLATION
                     if
-                    ::  (msg != ass_KEK || msg != ass_KEK2) && kek_ref == 6 -> p_sync = false
+                    ::  (msg != a_KEK || msg != a_KEK2) && kek_ref == 6 -> p_sync = false
                     ::  else -> skip
                     fi
                 ::  else -> skip
@@ -957,7 +971,7 @@ proctype Keystore()
                 ::  p_assigned_2 && MODEL == 1 ->
                     // SYNCHRONIZATION VIOLATION
                     if
-                    ::  (msg != ass_KEK || msg != ass_KEK2) && kek_ref == 7 -> p_sync = false
+                    ::  (msg != a_KEK || msg != a_KEK2) && kek_ref == 7 -> p_sync = false
                     ::  else -> skip
                     fi
                 ::  else -> skip
@@ -1029,12 +1043,11 @@ proctype Database() {
             
             if
             ::  step != 4 -> p_protocol = false
-            ::  kek_id < 1 && kek_id > 4 -> p_int = false
             ::  else -> skip
             fi
             
             do
-            ::  (msg == e_DEK || msg == d_DEK || msg == ass_KEK || msg == re_DEK) -> goto Access_KEK
+            ::  (msg == e_DEK || msg == d_DEK || msg == a_KEK || msg == re_DEK) -> goto Access_KEK
             ::  else -> goto Deny_request
             od
             
@@ -1043,6 +1056,7 @@ proctype Database() {
     Access_KEK:
 
         atomic {
+
             i = 0
             for (i : 0 .. array_size-1) {
                 if 
@@ -1060,6 +1074,7 @@ proctype Database() {
         }        
 
     Send:
+
         atomic {
 
             p_KEKs[i].version = !p_KEKs[i].version
@@ -1079,6 +1094,7 @@ proctype Database() {
         }
 
     Send_Recrypt:
+
         atomic {
 
             if
@@ -1094,9 +1110,8 @@ proctype Database() {
             db2k_buff++
 
             if
-            ::  dek_id != kek_id && i > 1 -> i = i-2
-            ::  dek_id != kek_id && i < 2 -> i = i+2
-            ::  else -> skip
+            ::  i > 1 -> i = i-2
+            ::  i < 2 -> i = i+2
             fi
 
             goto Send
@@ -1163,8 +1178,8 @@ proctype AccessControl()
             ::  temp_e_dek.id > 0 && temp_e_dek.id < ENC_DUMMY -> p_conf = false 
             ::  kek_ref > 0 && kek_ref < ENC_DUMMY -> p_conf = false
             ::  !auth_ac -> goto Cleanup
-            ::  msg != ass_KEK2 && step != 2 -> p_protocol = false
-            ::  msg == ass_KEK2 && step != 6 -> p_protocol = false
+            ::  msg != a_KEK2 && step != 2 -> p_protocol = false
+            ::  msg == a_KEK2 && step != 6 -> p_protocol = false
             ::  else -> skip
             fi
 
@@ -1175,8 +1190,8 @@ proctype AccessControl()
 
         atomic {
             if
-            ::  msg == ass_KEK -> goto Assign_KEK_authorize
-            ::  msg == ass_KEK2 -> goto Assign_KEK2_authorize
+            ::  msg == a_KEK -> goto Assign_KEK_authorize
+            ::  msg == a_KEK2 -> goto Assign_KEK2_authorize
             ::  (msg == d_DEK || msg == e_DEK || msg == re_DEK) -> goto Authorize
             ::  else -> goto Deny_request
             fi
@@ -1198,7 +1213,7 @@ proctype AccessControl()
             fi
 
             ac2k_buff < AC2K_MAX
-            ac2k!ass_KEK, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
+            ac2k!a_KEK, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
             ac2k_buff++
 
             goto Cleanup
@@ -1216,7 +1231,7 @@ proctype AccessControl()
             fi
             
             ac2k_buff < AC2K_MAX
-            ac2k!ass_KEK2, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
+            ac2k!a_KEK2, dek_id, kek_ref, temp_e_dek.id, temp_e_dek.ref_version, tenant_id, grant, id, step+1
             ac2k_buff++
 
             goto Cleanup
@@ -1228,7 +1243,7 @@ proctype AccessControl()
         atomic {
             
             if
-            ::  kek_ref < 6 -> goto Deny_request
+            ::  kek_ref == 0 -> goto Deny_request
             ::  else -> skip
             fi
 
