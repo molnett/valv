@@ -27,10 +27,10 @@ THE SOFTWARE.
     
     1=A 2=B 3=C 4=D In the paper.
     
-    2: Assignemnt and Encryption.
-    3: Decryption after assignment and encryption has been finalized
-    4: Re-Encryption of envelopes after assignment and encryption has been finalized 
-    5: Tenant 1 assignment and encryption then invalid credentials, Tenant 2 only Decrypts envelopes received from Tenant 1 with different grants.
+    1: Assignemnt and Encryption.
+    2: Decryption after assignment and encryption has been finalized
+    3: Re-Encryption of envelopes after assignment and encryption has been finalized 
+    4: Tenant 1 assignment and encryption then invalid credentials, Tenant 2 only Decrypts envelopes received from Tenant 1 with different grants.
 
     If MODEL == 1 then IS_MODEL_1 == 1 
     If MODEL != 1 then IS_MODEL_1 == 0
