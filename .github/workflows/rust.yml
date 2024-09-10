@@ -22,9 +22,11 @@ jobs:
         version: "7.3.27"
     - name: Setup buf
       uses: bufbuild/buf-setup-action@v1.40.1
+    - name: Setup protoc
+      run: sudo apt-get install protobuf-compiler
     - name: Generate buf
       run: cd crates/keystore && buf generate
     - name: Build
-      run: cargo build --verbose
+      run: cargo build
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test
