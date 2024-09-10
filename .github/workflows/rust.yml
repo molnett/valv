@@ -30,5 +30,13 @@ jobs:
       run: cd crates/keystore && buf generate
     - name: Build
       run: cargo build
-    - name: Run tests
-      run: cargo test
+    - name: Run Keystore tests
+      run: cargo test -p keystore
+    - name: Run Valv server and integration tests
+      run: |
+        cargo run -p valv-server &
+        SERVER_PID=$!
+        sleep 1
+        cargo test -p valv -- --nocapture
+        kill $SERVER_PID
+
