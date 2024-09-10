@@ -34,7 +34,7 @@ jobs:
       run: cargo test -p keystore
     - name: Run Valv server and integration tests
       run: |
-        cargo run -p valv-server &
+        cargo run -p valv &
         SERVER_PID=$!
         sleep 1
         cargo test -p valv -- --nocapture
