@@ -4,10 +4,11 @@ pub mod google {
     }
 }
 
+use std::{sync::Arc, time::SystemTime};
+
 use crc32c::crc32c;
 use google::kms::{crypto_key::RotationSchedule, key_management_service_server::KeyManagementService};
-use keystore::{gen::keystore::internal, KeystoreAPI};
-use prost_types::Duration;
+use keystore::{gen::keystore::internal, Keystore, KeystoreAPI};
 use tokio::sync::Mutex;
 
 mod tests;
@@ -29,7 +30,7 @@ impl KeyManagementService for ValvAPI {
         &self,
         request: tonic::Request<google::kms::ListCryptoKeysRequest>,
     ) -> Result<tonic::Response<google::kms::ListCryptoKeysResponse>, tonic::Status> {
-        let keys = self.keystore.lock().await.list_keys(request.into_inner().parent.split('/').last().unwrap().to_string()).await;
+        let keys = self.keystore.lock().await.list_keys(request.into_inner().parent.split('/').last().unwrap()).await;
         
         return Ok(tonic::Response::new(google::kms::ListCryptoKeysResponse {
             crypto_keys: keys.unwrap_or_default().into_iter().map(|key| {
@@ -72,12 +73,12 @@ impl KeyManagementService for ValvAPI {
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
         let request = request.into_inner();
         
-        let tenant_name = request.name.split('/').nth(5).unwrap().to_string();
-        let key_name = request.name.split('/').last().unwrap().to_string();
+        let tenant_name = request.name.split('/').nth(5).unwrap();
+        let key_name = request.name.split('/').last().unwrap();
 
         let key = self.keystore.lock().await.get_key(
-            tenant_name.clone(),
-            key_name.clone(),
+            tenant_name,
+            key_name,
         ).await;
 
         match key {
@@ -128,18 +129,18 @@ impl KeyManagementService for ValvAPI {
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
         let request = request.into_inner();
         
-        let tenant_name = request.parent.split('/').nth(5).unwrap().to_string();
+        let tenant_name = request.parent.split('/').nth(5).unwrap();
         let key_name = request.crypto_key_id;
 
         let keystore = self.keystore.lock().await;
         let key = keystore
             .create_key(
-                tenant_name.clone(),
-                key_name.clone(),
+                tenant_name,
+                key_name.clone().as_str(),
             )
             .await;
 
-        let primary = keystore.get_key_version(tenant_name, key_name, key.primary_version_id.parse().unwrap()).await;
+        let primary = keystore.get_key_version(tenant_name, key_name.as_str(), key.primary_version_id.parse().unwrap()).await;
         if primary.is_none() {
             return Err(tonic::Status::not_found("primary key version not found"));
         }
@@ -180,11 +181,11 @@ impl KeyManagementService for ValvAPI {
 
         let crypto_key = request.crypto_key.unwrap();
 
-        let tenant_name = crypto_key.name.split('/').nth(5).unwrap().to_string();
-        let key_name = crypto_key.name.split('/').last().unwrap().to_string();
+        let tenant_name = crypto_key.name.split('/').nth(5).unwrap();
+        let key_name = crypto_key.name.split('/').last().unwrap();
 
         let keystore = self.keystore.lock().await;
-        let key = keystore.get_key(tenant_name.clone(), key_name.clone()).await;
+        let key = keystore.get_key(tenant_name, key_name).await;
 
         let mut key = if key.is_none() {
             return Err(tonic::Status::not_found("key not found"));
@@ -200,7 +201,7 @@ impl KeyManagementService for ValvAPI {
 
         key.rotation_schedule = Some(rotation_period.clone());
 
-        let key = keystore.update_key(tenant_name.clone(), key).await;
+        let key = keystore.update_key(tenant_name, key).await;
 
         let primary = keystore.get_key_version(tenant_name, key_name, key.primary_version_id.parse().unwrap()).await;
         if primary.is_none() {
@@ -223,8 +224,8 @@ impl KeyManagementService for ValvAPI {
     ) -> Result<tonic::Response<google::kms::EncryptResponse>, tonic::Status> {
         let request = request.into_inner();
 
-        let tenant_name = request.name.split('/').nth(5).unwrap().to_string();
-        let key_name = request.name.split('/').last().unwrap().to_string();
+        let tenant_name = request.name.split('/').nth(5).unwrap();
+        let key_name = request.name.split('/').last().unwrap();
 
         let ciphertext = self.keystore.lock().await.encrypt(tenant_name, key_name, request.plaintext).await;
 
@@ -242,8 +243,8 @@ impl KeyManagementService for ValvAPI {
     ) -> Result<tonic::Response<google::kms::DecryptResponse>, tonic::Status> {
         let request = request.into_inner();
 
-        let tenant_name = request.name.split('/').nth(5).unwrap().to_string();
-        let key_name = request.name.split('/').last().unwrap().to_string();
+        let tenant_name = request.name.split('/').nth(5).unwrap();
+        let key_name = request.name.split('/').last().unwrap();
 
         let result = self.keystore.lock().await.decrypt(tenant_name, key_name, request.ciphertext).await;
 
@@ -368,11 +369,11 @@ async fn main() {
     let mut key = [0; 32];
     boring::rand::rand_bytes(&mut key).unwrap();
 
-    let mut store = keystore::Keystore::new().await;
+    let mut keystore = Keystore::new(Arc::new(SystemTime::now())).await;
 
-    store.set_master_key(key);
+    keystore.set_master_key(key);
     let api = ValvAPI {
-        keystore: Mutex::new(store),
+        keystore: Mutex::new(keystore),
     };
 
     tonic::transport::Server::builder()

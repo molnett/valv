@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 use clap::Parser;
 use keystore::{
@@ -21,7 +21,7 @@ struct Cli {
 async fn main() {
     let args = Cli::parse();
 
-    let mut keystore = Keystore::new().await;
+    let mut keystore = Keystore::new(Arc::new(SystemTime::now())).await;
 
     let master_key = args.master_key.clone().expose_secret().clone().into_bytes()[..32]
         .try_into()
