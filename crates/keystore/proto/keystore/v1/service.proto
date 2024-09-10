@@ -1,60 +1,90 @@
 syntax = "proto3";
 
-package valv.keystore.v1;
+package keystore.v1;
 
 import "google/api/field_behavior.proto";
-import "valv/keystore/v1/resources.proto";
+import "keystore/v1/resources.proto";
 
 service MasterKeyManagementService {
   rpc CreateMasterKey(CreateMasterKeyRequest) returns (CreateMasterKeyResponse);
   rpc ListMasterKeys(ListMasterKeysRequest) returns (ListMasterKeysResponse);
 
-  rpc ListMasterKeyVersions(ListMasterKeyVersionsRequest) returns (ListMasterKeyVersionsResponse);
-  rpc CreateMasterKeyVersion(CreateMasterKeyVersionRequest) returns (CreateMasterKeyVersionResponse);
-  rpc DestroyMasterKeyVersion(DestroyMasterKeyVersionRequest) returns (DestroyMasterKeyVersionResponse);
+  rpc ListMasterKeyVersions(ListMasterKeyVersionsRequest)
+    returns (ListMasterKeyVersionsResponse);
+  rpc CreateMasterKeyVersion(CreateMasterKeyVersionRequest)
+    returns (CreateMasterKeyVersionResponse);
+  rpc DestroyMasterKeyVersion(DestroyMasterKeyVersionRequest)
+    returns (DestroyMasterKeyVersionResponse);
 
   rpc Encrypt(EncryptRequest) returns (EncryptResponse);
   rpc Decrypt(DecryptRequest) returns (DecryptResponse);
 }
 
 message CreateMasterKeyRequest {
-  string master_key_id = 1
+  string keyring_name = 1
     [(google.api.field_behavior) = REQUIRED];
 
-  MasterKey master_key = 2
+  string master_key_id = 2
+    [(google.api.field_behavior) = REQUIRED];
+
+  MasterKey master_key = 3
     [(google.api.field_behavior) = REQUIRED];
 }
 
-message ListMasterKeysRequest {}
+message ListMasterKeysRequest {
+  string keyring_name = 1
+    [(google.api.field_behavior) = REQUIRED];
+}
 
-message ListMasterKeyVersionsRequest {}
-
-message CreateMasterKeyVersionRequest {
-  string master_key_id = 1
+message ListMasterKeyVersionsRequest {
+  string keyring_name = 1
     [(google.api.field_behavior) = REQUIRED];
 
-  MasterKeyVersion master_key_version = 2
+  string master_key_id = 2
+    [(google.api.field_behavior) = REQUIRED];
+}
+
+message CreateMasterKeyVersionRequest {
+  string keyring_name = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  string master_key_id = 2
+    [(google.api.field_behavior) = REQUIRED];
+
+  MasterKeyVersion master_key_version = 3
     [(google.api.field_behavior) = REQUIRED];
 }
 
 message DestroyMasterKeyVersionRequest {
-  string master_key_id = 1
+  string keyring_name = 1
+    [(google.api.field_behavior) = REQUIRED];
+
+  string master_key_id = 2
+    [(google.api.field_behavior) = REQUIRED];
+
+  string master_key_version_id = 3
     [(google.api.field_behavior) = REQUIRED];
 }
 
 message EncryptRequest {
-  string master_key_id = 1
+  string keyring_name = 1
     [(google.api.field_behavior) = REQUIRED];
 
-  bytes plaintext = 2
+  string master_key_id = 2
+    [(google.api.field_behavior) = REQUIRED];
+
+  bytes plaintext = 3
     [(google.api.field_behavior) = REQUIRED];
 }
 
 message DecryptRequest {
-  string master_key_id = 1
+  string keyring_name = 1
     [(google.api.field_behavior) = REQUIRED];
 
-  bytes ciphertext = 2
+  string master_key_id = 2
+    [(google.api.field_behavior) = REQUIRED];
+
+  bytes ciphertext = 3
     [(google.api.field_behavior) = REQUIRED];
 }
 

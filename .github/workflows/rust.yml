@@ -15,8 +15,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Setup FoundationDB
+      uses: foundationdb-rs/foundationdb-actions-install@v2.1.0
+      with:
+        version: "7.3.27"
+    - name: Setup buf
+      uses: bufbuild/buf-setup-action@v1.40.1
+    - name: Setup protoc
+      run: sudo apt-get install protobuf-compiler
+    - name: Generate buf
+      run: cd crates/keystore && buf generate
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      run: cargo build
+    - name: Run Keystore tests
+      run: cargo test -p keystore
+    - name: Run Valv server and integration tests
+      run: |
+        cargo run -p valv &
+        SERVER_PID=$!
+        sleep 1
+        cargo test -p valv -- --nocapture
+        kill $SERVER_PID
+

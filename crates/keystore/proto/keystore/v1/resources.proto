@@ -1,10 +1,11 @@
 syntax = "proto3";
 
-package valv.keystore.v1;
+package keystore.v1;
 
+import "google/api/field_behavior.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
-import "google/api/field_behavior.proto";
+
 
 message MasterKey {
   string name = 1
@@ -16,7 +17,7 @@ message MasterKey {
   MasterKeyVersion primary = 3
     [(google.api.field_behavior) = OUTPUT_ONLY];
   
-  google.protobuf.Duration rotation_period = 4
+  google.protobuf.Duration rotation_schedule = 4
     [(google.api.field_behavior) = OPTIONAL];
 
   google.protobuf.Duration destroy_scheduled_duration = 5

@@ -18,8 +18,10 @@ anyhow = "1.0.79"
 async-trait = "0.1.77"
 bincode = "1.3.3"
 boring = "4.1.0"
+chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.4.16", features = ["derive"] }
 foundationdb = { version = "0.9.0", features = ["fdb-7_1"] }
+log = "0.4.22"
 prost = "0.12.3"
 prost-types = "0.12.3"
 secrecy = "0.8.0"
