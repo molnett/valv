@@ -15,7 +15,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
     - name: Setup FoundationDB
       uses: foundationdb-rs/foundationdb-actions-install@v2.1.0
       with:
