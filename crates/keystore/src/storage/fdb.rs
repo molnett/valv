@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use foundationdb::{
     directory::Directory,
-    tuple::{unpack, TuplePack},
+    tuple::unpack,
     FdbError, RangeOption,
 };
 use prost::Message;
@@ -27,7 +27,7 @@ impl FoundationDB {
 
 impl FoundationDB {
     // Key structure
-    // /{read-location}/{primary-location}/{tenant}/keys/{key_id}/metadata
+    // /{read-location}/{primary-location}/{tenant, e.g. composite key of tenant+project+environment}/keys/{key_id}/metadata
     async fn get_metadata_fdb_key(
         &self,
         trx: &foundationdb::Transaction,
@@ -117,6 +117,50 @@ impl KeystoreStorage for FoundationDB {
             }
             None => Err(anyhow!("Key not found")),
         }
+    }
+
+    async fn list_key_metadata(&self, tenant: &str) -> anyhow::Result<Vec<internal::Key>> {
+        let trx = self.database.create_trx()?;
+        let directory = foundationdb::directory::DirectoryLayer::default();
+
+        let path = vec![
+            String::from(self.location.as_str()),
+            String::from(tenant),
+            String::from("keys"),
+        ];
+
+        let tenant_subspace = directory
+            .create_or_open(
+                // the transaction used to read/write the directory.
+                &trx,
+                // the path used, which can view as a UNIX path like `/app/my-app`.
+                &path, // do not use any custom prefix or layer
+                None, None,
+            )
+            .await
+            .unwrap();
+
+        let range = RangeOption::from(tenant_subspace.range().unwrap());
+
+        let key_values = trx
+            .get_range(&range, 1_024, false)
+            .await
+            .expect("failed to get keys");
+
+        let mut keys: Vec<internal::Key> = vec![];
+
+        // The actual key is in the value, not the key from key_alues
+        for key_value in key_values.into_iter() {
+            // Skip if the key is not a metadata key
+            if !key_value.key().ends_with(b"metadata\x00") {
+                continue
+            }
+
+            let key = internal::Key::decode(&key_value.value()[..]).expect("Failed to decode key");
+            keys.push(key);
+        }
+
+        Ok(keys)
     }
 
     async fn update_key_metadata(

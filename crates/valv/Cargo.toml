@@ -15,6 +15,8 @@ keystore = { path = "../keystore" }
 uuid = { version = "1.8.0", features = ["v4"] }
 env_logger = "0.11.3"
 log = "0.4.21"
+foundationdb = { version = "0.9.0", features = ["fdb-7_1"] }
+crc32c = "0.6.8"
 
 [build-dependencies]
 prost-build = "0.12.3"

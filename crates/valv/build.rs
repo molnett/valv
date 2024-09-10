@@ -8,7 +8,10 @@ fn main() {
                 "{}/vendor/googleapis/google/cloud/kms/v1/service.proto",
                 env!("CARGO_MANIFEST_DIR")
             )],
-            &[format!("{}/vendor/googleapis", env!("CARGO_MANIFEST_DIR"))],
+            &[
+                format!("{}/vendor/googleapis", env!("CARGO_MANIFEST_DIR")),
+                format!("{}/vendor/googleapis/google/protobuf/timestamp.proto", env!("CARGO_MANIFEST_DIR")),
+            ],
         )
         .unwrap();
 }

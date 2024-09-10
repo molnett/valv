@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 use storage::{fdb::FoundationDB, interface::KeystoreStorage};
 
 pub mod api;
-mod gen;
+pub mod gen;
 mod storage;
 mod tests;
 
 pub mod valv {
     pub mod keystore {
         pub mod v1 {
-            include!("gen/valv.keystore.v1.rs");
+            include!("gen/keystore.v1.rs");
         }
     }
 }
@@ -39,11 +39,15 @@ pub struct KeyMaterial {
 
 #[async_trait::async_trait]
 pub trait KeystoreAPI: Send + Sync {
-    async fn create_key(&self, name: String) -> internal::Key;
-    async fn get_key(&self, name: String) -> Option<internal::Key>;
+    async fn create_key(&self, tenant: String, name: String) -> internal::Key;
+    async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key>;
+    async fn list_keys(&self, tenant: String) -> Option<Vec<internal::Key>>;
+    async fn update_key(&self, tenant: String, key: internal::Key) -> internal::Key;
 
-    async fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
-    async fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
+    async fn get_key_version(&self, tenant: String, key_name: String, version_id: u32) -> Option<internal::KeyVersion>;
+
+    async fn encrypt(&self, tenant: String, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
+    async fn decrypt(&self, tenant: String, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
 }
 
 pub struct Keystore {
@@ -66,7 +70,22 @@ impl Keystore {
 
 #[async_trait::async_trait]
 impl KeystoreAPI for Keystore {
-    async fn create_key(&self, name: String) -> internal::Key {
+    async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key> {
+        let key = self
+            .db
+            .get_key_metadata(tenant.as_str(), name.as_str())
+            .await
+            .unwrap();
+
+        Some(key)
+    }
+
+    async fn list_keys(&self, tenant: String) -> Option<Vec<internal::Key>> {
+        let keys = self.db.list_key_metadata(tenant.as_str()).await.unwrap();
+        Some(keys)
+    }
+
+    async fn create_key(&self, tenant: String, name: String) -> internal::Key {
         let mut iv = [0; 12];
         let mut key = [0; 32];
         let mut tag = [0; 16];
@@ -98,23 +117,35 @@ impl KeystoreAPI for Keystore {
             key_id: name.clone(),
             primary_version_id: 1.to_string(),
             purpose: "ENCRYPT_DECRYPT".to_string(),
+            creation_time: Some(prost_types::Timestamp {
+                seconds: chrono::Utc::now().timestamp(),
+                nanos: chrono::Utc::now().timestamp_subsec_nanos() as i32,
+            }),
+            rotation_schedule: Some(prost_types::Duration {
+                seconds: chrono::TimeDelta::days(30).num_seconds() as i64,
+                nanos: 0,
+            }),
             ..Default::default()
         };
 
         self.db
-            .update_key_metadata("molnett", key.clone()).await.unwrap();
+            .update_key_metadata(tenant.as_str(), key.clone()).await.unwrap();
 
-        let key_version = internal::KeyVersion{
+        let key_version = internal::KeyVersion {
             key_id: name.clone(),
             key_material: encrypted_result.to_vec().into(),
             state: internal::KeyVersionState::Enabled as i32,
             version: 1,
+            creation_time: Some(prost_types::Timestamp {
+                seconds: chrono::Utc::now().timestamp(),
+                nanos: chrono::Utc::now().timestamp_subsec_nanos() as i32,
+            }),
             ..Default::default()
         };
 
         self.db
             .append_key_version(
-                "molnett",
+                tenant.as_str(),
                 key.clone(),
                 key_version,
             )
@@ -124,19 +155,20 @@ impl KeystoreAPI for Keystore {
         key
     }
 
-    async fn get_key(&self, name: String) -> Option<internal::Key> {
-        let key = self
-            .db
-            .get_key_metadata("molnett", name.as_str())
-            .await
-            .unwrap();
-
-        Some(key)
+    async fn update_key(&self, tenant: String, key: internal::Key) -> internal::Key {
+        self.db.update_key_metadata(tenant.as_str(), key.clone()).await.unwrap();
+        
+        key
     }
 
-    async fn encrypt(&self, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
-        let key = self.db.get_key_metadata("molnett", &key_name).await.unwrap();
-        let key_version = self.db.get_key_version("molnett", &key.key_id, key.primary_version_id.parse().unwrap()).await.unwrap();
+    async fn get_key_version(&self, tenant: String, key_name: String, version_id: u32) -> Option<internal::KeyVersion> {
+        let key_version = self.db.get_key_version(tenant.as_str(), &key_name, version_id).await.unwrap();
+        Some(key_version)
+    }
+
+    async fn encrypt(&self, tenant: String, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
+        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await.unwrap();
+        let key_version = self.db.get_key_version(tenant.as_str(), &key.key_id, key.primary_version_id.parse().unwrap()).await.unwrap();
 
         let (iv, remainder) = key_version.key_material.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
@@ -182,14 +214,14 @@ impl KeystoreAPI for Keystore {
         encrypted_result
     }
 
-    async fn decrypt(&self, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack> {
+    async fn decrypt(&self, tenant: String, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack> {
         let (key_version_id, remainder) = ciphertext.split_at(4);
         let (iv, remainder) = remainder.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
-        let key = self.db.get_key_metadata("molnett", &key_name).await.unwrap();
+        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await.unwrap();
         let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
-        let key_version = self.db.get_key_version("molnett", &key.key_id, key_version_id).await.unwrap();
+        let key_version = self.db.get_key_version(tenant.as_str(), &key.key_id, key_version_id).await.unwrap();
 
         let (kv_iv, kv_remainder) = key_version.key_material.split_at(12);
         let (kv_cipher, kv_tag) = kv_remainder.split_at(kv_remainder.len() - 16);

@@ -6,6 +6,7 @@ use crate::gen::keystore::internal;
 pub trait KeystoreStorage {
     async fn get_key_metadata(&self, tenant: &str, key_id: &str)
         -> anyhow::Result<internal::Key>;
+    async fn list_key_metadata(&self, tenant: &str) -> anyhow::Result<Vec<internal::Key>>;
     async fn update_key_metadata(
         &self,
         tenant: &str,

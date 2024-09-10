@@ -74,8 +74,8 @@ mod tests {
 
     async fn test_keystore() -> anyhow::Result<()> {
         let keystore = Keystore::new().await;
-        let key = keystore.create_key("test".to_string()).await;
-        let key_metadata = keystore.get_key(key.key_id).await;
+        let key = keystore.create_key("tenant".to_string(), "test".to_string()).await;
+        let key_metadata = keystore.get_key("tenant".to_string(), key.key_id).await;
         assert_eq!(key_metadata.unwrap().key_id, "test");
 
         Ok(())
@@ -91,6 +91,7 @@ mod tests {
         let request = tonic::Request::new(CreateMasterKeyRequest {
             master_key: Some(MasterKey::default()),
             master_key_id: "test".to_string(),
+            keyring_name: "test_tenant".to_string(),
         });
         let response = client.create_master_key(request).await?;
 
@@ -114,6 +115,7 @@ mod tests {
         let request = tonic::Request::new(CreateMasterKeyRequest {
             master_key: Some(MasterKey::default()),
             master_key_id: "test".to_string(),
+            keyring_name: "test_tenant".to_string(),
         });
         let response = client.create_master_key(request).await.unwrap();
 
@@ -124,6 +126,7 @@ mod tests {
         let encrypt_request = tonic::Request::new(EncryptRequest {
             master_key_id: response.get_ref().master_key.as_ref().unwrap().name.clone(),
             plaintext: vec![0; 32].into(),
+            keyring_name: "test_tenant".to_string(),
         });
         let encrypt_response = client.encrypt(encrypt_request).await.unwrap();
 
@@ -139,6 +142,7 @@ mod tests {
         let decrypt_request = tonic::Request::new(DecryptRequest {
             master_key_id: response.get_ref().master_key.as_ref().unwrap().name.clone(),
             ciphertext: original_ciphertext.clone(),
+            keyring_name: "test_tenant".to_string(),
         });
         let decrypt_response = client.decrypt(decrypt_request).await.unwrap();
 
@@ -151,6 +155,7 @@ mod tests {
         let request = tonic::Request::new(CreateMasterKeyRequest {
             master_key: Some(MasterKey::default()),
             master_key_id: "another_key".to_string(),
+            keyring_name: "test_tenant".to_string(),
         });
         let response = client.create_master_key(request).await.unwrap();
 
@@ -163,6 +168,7 @@ mod tests {
         let decrypt_request_another_key = tonic::Request::new(DecryptRequest {
             master_key_id: "another_key".to_string(),
             ciphertext: original_ciphertext,
+            keyring_name: "test_tenant".to_string(),
         });
         let decrypt_response_another_key = client.decrypt(decrypt_request_another_key).await;
 

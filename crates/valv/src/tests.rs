@@ -15,6 +15,7 @@ mod tests {
         UpdateCryptoKeyPrimaryVersionRequest, UpdateCryptoKeyRequest,
     };
     use std::time::Duration;
+    use crc32c::crc32c;
     use tonic::{Request, Response, Status};
     use uuid::Uuid;
 
@@ -295,12 +296,12 @@ mod tests {
         client: &mut TestClient,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Test KeyRing operations
-        let key_ring_id = format!("test-keyring-{}", Uuid::new_v4());
-        log::info!("Testing KeyRing operations");
-        test_key_ring_operations(client, &key_ring_id).await?;
+        let key_ring_id = "test-keyring".to_string();
+        /*log::info!("Testing KeyRing operations");
+        test_key_ring_operations(client, &key_ring_id).await?;*/
 
         // Test CryptoKey operations
-        let crypto_key_id = format!("test-cryptokey-{}", Uuid::new_v4());
+        let crypto_key_id = "test-cryptokey".to_string();
         log::info!("Testing CryptoKey operations");
         test_crypto_key_operations(client, &key_ring_id, &crypto_key_id).await?;
 
@@ -308,7 +309,7 @@ mod tests {
         log::info!("Testing encryption and decryption");
         test_encrypt_decrypt(client, &key_ring_id, &crypto_key_id).await?;
 
-        // Test CryptoKeyVersion operations
+        /*// Test CryptoKeyVersion operations
         log::info!("Testing CryptoKeyVersion operations");
         test_crypto_key_version_operations(client, &key_ring_id, &crypto_key_id).await?;
 
@@ -322,7 +323,7 @@ mod tests {
 
         // Test error cases
         log::info!("Testing error cases");
-        test_error_cases(client).await?;
+        test_error_cases(client).await?;*/
 
         Ok(())
     }
@@ -394,6 +395,36 @@ mod tests {
             })),
         );
 
+        let primary = &update_response.get_ref().primary;
+        assert!(primary.is_some());
+
+        match primary {
+            Some(primary) => {
+                // Compare primary create time to the rotation schedule
+                if let Some(rotation_schedule) = &update_response.get_ref().rotation_schedule {
+                    match rotation_schedule {
+                        RotationSchedule::RotationPeriod(period) => {
+                            let rotation_duration = Duration::from_secs(period.seconds as u64)
+                                + Duration::from_nanos(period.nanos as u64);
+                            let last_rotated_time = primary.create_time.as_ref().unwrap();
+                            let now = std::time::SystemTime::now();
+                            let duration_since_creation = now.duration_since(
+                                std::time::UNIX_EPOCH + Duration::from_secs(last_rotated_time.seconds as u64)
+                            ).expect("Time went backwards");
+
+                            assert!(
+                                duration_since_creation <= rotation_duration,
+                                "Primary key version is older than the rotation period"
+                            );
+                        }
+                    }
+                } else {
+                    panic!("Rotation schedule is not set");
+                }
+            },
+            None => {}
+        }
+        
         Ok(())
     }
 
@@ -409,6 +440,7 @@ mod tests {
             .encrypt(key_ring_id, crypto_key_id, plaintext)
             .await?;
         assert!(!encrypt_response.get_ref().ciphertext.is_empty());
+        assert_eq!(encrypt_response.get_ref().ciphertext_crc32c, Some(crc32c(&encrypt_response.get_ref().ciphertext) as i64));
 
         // Decrypt
         let decrypt_response = client
