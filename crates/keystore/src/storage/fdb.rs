@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use foundationdb::{
-    directory::Directory,
+    directory::{Directory, DirectoryLayer},
     tuple::unpack,
     FdbError, RangeOption,
 };
@@ -34,7 +34,7 @@ impl FoundationDB {
         tenant: &str,
         key_id: &str,
     ) -> Vec<u8> {
-        let directory = foundationdb::directory::DirectoryLayer::default();
+        let directory = DirectoryLayer::default();
 
         let path = vec![
             String::from(self.location.as_str()),
@@ -68,7 +68,7 @@ impl FoundationDB {
         key_id: &str,
         version: u32,
     ) -> Vec<u8> {
-        let directory = foundationdb::directory::DirectoryLayer::default();
+        let directory = DirectoryLayer::default();
 
         let path = vec![
             String::from(self.location.as_str()),
@@ -99,6 +99,41 @@ impl FoundationDB {
     }
 }
 
+impl FoundationDB {
+    pub async fn list_tenants(&self) -> Result<Vec<String>, anyhow::Error> {
+        let trx = self.database.create_trx()?;
+        let directory = DirectoryLayer::default();
+
+        let path = vec![String::from(self.location.as_str())];
+
+        let location_subspace = directory
+            .create_or_open(&trx, &path, None, None)
+            .await
+            .map_err(|e| anyhow!("Failed to open root directory: {:?}", e))?;
+
+        let range = RangeOption::from(location_subspace.range().unwrap());
+        
+        let key_values = trx
+            .get_range(&range, 1_024, false)
+            .await
+            .map_err(|e| anyhow!("Failed to get range: {:?}", e))?;
+
+        println!("key_value length: {:?}", key_values.len());
+        
+        let tenants: Vec<String> = key_values
+            .iter()
+            .filter_map(|kv| {
+                let unpacked: Result<Vec<u8>, _> = location_subspace.unpack(&kv.key()).unwrap();
+                unpacked.ok().and_then(|u| {
+                    Some(String::from_utf8(u).unwrap())
+                })
+            })
+            .collect();
+
+        Ok(tenants)
+    }
+}
+
 #[async_trait]
 impl KeystoreStorage for FoundationDB {
     async fn get_key_metadata(
@@ -121,7 +156,7 @@ impl KeystoreStorage for FoundationDB {
 
     async fn list_key_metadata(&self, tenant: &str) -> anyhow::Result<Vec<internal::Key>> {
         let trx = self.database.create_trx()?;
-        let directory = foundationdb::directory::DirectoryLayer::default();
+        let directory = DirectoryLayer::default();
 
         let path = vec![
             String::from(self.location.as_str()),
@@ -200,7 +235,7 @@ impl KeystoreStorage for FoundationDB {
 
     async fn get_key_versions(&self, tenant: &str, key_id: &str) -> anyhow::Result<Vec<internal::KeyVersion>> {
         let trx = self.database.create_trx()?;
-        let directory = foundationdb::directory::DirectoryLayer::default();
+        let directory = DirectoryLayer::default();
 
         let path = vec![
             String::from(self.location.as_str()),

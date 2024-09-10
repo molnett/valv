@@ -1,15 +1,13 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::server::API,
-        valv::keystore::v1::{
+        api::server::API, clock::MockClock, valv::keystore::v1::{
             master_key_management_service_server::MasterKeyManagementServiceServer,
             CreateMasterKeyRequest, DecryptRequest, EncryptRequest, MasterKey,
-        },
-        Keystore, KeystoreAPI,
+        }, Keystore, KeystoreAPI
     };
 
-    use std::{sync::Arc, time::Duration};
+    use std::{sync::Arc, time::{Duration, SystemTime}};
     use tonic::transport::Server;
 
     use crate::valv::keystore::v1::master_key_management_service_client::MasterKeyManagementServiceClient;
@@ -40,7 +38,8 @@ mod tests {
 
     async fn setup_server() -> anyhow::Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>> {
         let addr = SERVER_ADDR.parse()?;
-        let mut keystore = Keystore::new().await;
+        let mock_clock = Arc::new(MockClock::new(SystemTime::UNIX_EPOCH));
+        let mut keystore = Keystore::new(mock_clock).await;
         let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
             .as_bytes()
             .try_into()
@@ -73,9 +72,10 @@ mod tests {
     }
 
     async fn test_keystore() -> anyhow::Result<()> {
-        let keystore = Keystore::new().await;
-        let key = keystore.create_key("tenant".to_string(), "test".to_string()).await;
-        let key_metadata = keystore.get_key("tenant".to_string(), key.key_id).await;
+        let clock = Arc::new(MockClock::new(SystemTime::UNIX_EPOCH));
+        let keystore = Keystore::new(clock).await;
+        let key = keystore.create_key("tenant", "test").await;
+        let key_metadata = keystore.get_key("tenant", key.key_id.as_str()).await;
         assert_eq!(key_metadata.unwrap().key_id, "test");
 
         Ok(())

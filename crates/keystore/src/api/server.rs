@@ -24,7 +24,7 @@ impl MasterKeyManagementService for API {
     ) -> Result<tonic::Response<CreateMasterKeyResponse>, tonic::Status> {
         let key = self
             .keystore
-            .create_key(request.get_ref().keyring_name.clone(), request.get_ref().master_key_id.clone())
+            .create_key(request.get_ref().keyring_name.as_str(), request.get_ref().master_key_id.as_str())
             .await;
 
         let reply = CreateMasterKeyResponse {
@@ -86,9 +86,9 @@ impl MasterKeyManagementService for API {
         request: tonic::Request<EncryptRequest>,
     ) -> Result<tonic::Response<EncryptResponse>, tonic::Status> {
         let encrypted_value = self.keystore.encrypt(
-            request.get_ref().keyring_name.clone(),
-            request.get_ref().master_key_id.clone(),
-            request.get_ref().plaintext.clone().to_vec(),
+            request.get_ref().keyring_name.as_str(),
+            request.get_ref().master_key_id.as_str(),
+            request.get_ref().plaintext.to_vec(),
         ).await;
 
         let reply = crate::valv::keystore::v1::EncryptResponse {
@@ -104,9 +104,9 @@ impl MasterKeyManagementService for API {
         request: tonic::Request<DecryptRequest>,
     ) -> Result<tonic::Response<DecryptResponse>, tonic::Status> {
         let decrypted_result = self.keystore.decrypt(
-            request.get_ref().keyring_name.clone(),
-            request.get_ref().master_key_id.clone(),
-            request.get_ref().ciphertext.clone().to_vec(),
+            request.get_ref().keyring_name.as_str(),
+            request.get_ref().master_key_id.as_str(),
+            request.get_ref().ciphertext.to_vec(),
         ).await;
         match decrypted_result {
             Ok(decrypted_value) => {
