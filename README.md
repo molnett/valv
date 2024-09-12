@@ -22,7 +22,7 @@ Valv is an open-source Key Management System (KMS) built for modern cloud enviro
 1. Clone the repository:
 
    ```shell
-   git clone https://github.com/molnett/valv.git
+   git clone https://github.com/molnett/valv.git --recurse-submodules
    cd valv
    ```
 
