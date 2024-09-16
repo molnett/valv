@@ -1,17 +1,19 @@
-extern crate tonic_build;
+use std::env;
+use std::error::Error;
+use std::process::{exit, Command};
+fn main() -> Result<(), Box<dyn Error>> {
+    // We do not want to perform this action for a CICD release build.
+    if Ok("debug".to_owned()) == env::var("PROFILE") {
+        let status = Command::new("buf")
+            .arg("generate")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .status()
+            .unwrap();
 
-fn main() {
-    tonic_build::configure()
-        .build_server(true)
-        .compile(
-            &[format!(
-                "{}/vendor/googleapis/google/cloud/kms/v1/service.proto",
-                env!("CARGO_MANIFEST_DIR")
-            )],
-            &[
-                format!("{}/vendor/googleapis", env!("CARGO_MANIFEST_DIR")),
-                format!("{}/vendor/googleapis/google/protobuf/timestamp.proto", env!("CARGO_MANIFEST_DIR")),
-            ],
-        )
-        .unwrap();
+        if !status.success() {
+            exit(status.code().unwrap_or(-1))
+        }
+    }
+
+    Ok(())
 }

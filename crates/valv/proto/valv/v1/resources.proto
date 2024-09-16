@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package keystore.v1;
+package valv.v1;
 
 import "google/api/field_behavior.proto";
 import "google/protobuf/duration.proto";

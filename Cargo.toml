@@ -2,5 +2,4 @@
 resolver = "2"
 members = [
     "crates/valv",
-    "crates/keystore",
 ]

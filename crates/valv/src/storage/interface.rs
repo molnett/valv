@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 
-use crate::gen::keystore::internal;
+use crate::gen::valv::internal;
 
 #[async_trait]
-pub trait KeystoreStorage {
+pub trait ValvStorage {
     async fn get_key_metadata(&self, tenant: &str, key_id: &str)
         -> anyhow::Result<internal::Key>;
     async fn list_key_metadata(&self, tenant: &str) -> anyhow::Result<Vec<internal::Key>>;

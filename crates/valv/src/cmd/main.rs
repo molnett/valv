@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use keystore::{
+use valv::{
     api,
-    valv::keystore::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
-    Keystore,
+    valv::valv::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
+    Valv,
 };
 use secrecy::{ExposeSecret, Secret};
 use tonic::transport::Server;
@@ -21,16 +21,16 @@ struct Cli {
 async fn main() {
     let args = Cli::parse();
 
-    let mut keystore = Keystore::new().await;
+    let mut valv = Valv::new().await;
 
     let master_key = args.master_key.clone().expose_secret().clone().into_bytes()[..32]
         .try_into()
         .unwrap();
 
-    keystore.set_master_key(master_key);
+    valv.set_master_key(master_key);
 
     let api = api::server::API {
-        keystore: Arc::new(keystore),
+        valv: Arc::new(valv),
     };
 
     let svc = MasterKeyManagementServiceServer::new(api);

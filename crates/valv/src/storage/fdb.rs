@@ -7,9 +7,9 @@ use foundationdb::{
 };
 use prost::Message;
 
-use crate::gen::keystore::internal;
+use crate::gen::valv::internal;
 
-use super::interface::KeystoreStorage;
+use super::interface::ValvStorage;
 
 pub struct FoundationDB {
     database: foundationdb::Database,
@@ -100,7 +100,7 @@ impl FoundationDB {
 }
 
 #[async_trait]
-impl KeystoreStorage for FoundationDB {
+impl ValvStorage for FoundationDB {
     async fn get_key_metadata(
         &self,
         tenant: &str,

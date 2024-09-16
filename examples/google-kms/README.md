@@ -1,6 +1,6 @@
-# Valv
+# Google KMS example
 
-Valv is a Google KMS compatible key management service built on top of Keystore.
+This is a Google KMS compatible key management service built on top of Keystore.
 
 ## UNDER CONSTRUCTION
 

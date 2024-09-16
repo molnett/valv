@@ -1,10 +1,10 @@
 
 use boring::error::ErrorStack;
-use gen::keystore::internal;
+use gen::valv::internal;
 use prost::bytes::Buf;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
-use storage::{fdb::FoundationDB, interface::KeystoreStorage};
+use storage::{fdb::FoundationDB, interface::ValvStorage};
 
 pub mod api;
 pub mod gen;
@@ -12,9 +12,9 @@ mod storage;
 mod tests;
 
 pub mod valv {
-    pub mod keystore {
+    pub mod valv {
         pub mod v1 {
-            include!("gen/keystore.v1.rs");
+            include!("gen/valv.v1.rs");
         }
     }
 }
@@ -38,7 +38,7 @@ pub struct KeyMaterial {
 }
 
 #[async_trait::async_trait]
-pub trait KeystoreAPI: Send + Sync {
+pub trait ValvAPI: Send + Sync {
     async fn create_key(&self, tenant: String, name: String) -> internal::Key;
     async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key>;
     async fn list_keys(&self, tenant: String) -> Option<Vec<internal::Key>>;
@@ -50,14 +50,14 @@ pub trait KeystoreAPI: Send + Sync {
     async fn decrypt(&self, tenant: String, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
 }
 
-pub struct Keystore {
+pub struct Valv {
     pub db: FoundationDB,
     pub master_key: Secret<[u8; 32]>,
 }
 
-impl Keystore {
-    pub async fn new() -> Keystore {
-        Keystore {
+impl Valv {
+    pub async fn new() -> Valv {
+        Valv {
             db: FoundationDB::new("local").await.unwrap(),
             master_key: [0; 32].into(),
         }
@@ -69,7 +69,7 @@ impl Keystore {
 }
 
 #[async_trait::async_trait]
-impl KeystoreAPI for Keystore {
+impl ValvAPI for Valv {
     async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key> {
         let key = self
             .db

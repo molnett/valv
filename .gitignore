@@ -1,5 +1,5 @@
 # Rust build artifacts
-/target
+target/
 gen/
 
 # IDE and editor files
