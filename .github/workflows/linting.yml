@@ -2,7 +2,7 @@ name: Rust Checks
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -11,6 +11,8 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - name: Setup FoundationDB
@@ -24,6 +26,12 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1.40.1
+      - name: Setup protoc
+        run: sudo apt-get install protobuf-compiler
+      - name: Generate buf
+        run: cd crates/valv && buf generate
       - name: Run Clippy
         uses: actions-rs/clippy-check@v1
         with:
@@ -33,6 +41,8 @@ jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -42,6 +52,12 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1.40.1
+      - name: Setup protoc
+        run: sudo apt-get install protobuf-compiler
+      - name: Generate buf
+        run: cd crates/valv && buf generate
       - name: Check formatting
         uses: actions-rs/cargo@v1
         with:
