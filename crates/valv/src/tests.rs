@@ -34,11 +34,14 @@ mod tests {
         println!("Create master key test passed\n");
 
         println!("Testing encrypt/decrypt");
-        test_encrypt_decrypt().await.expect("test_encrypt_decrypt error");
+        test_encrypt_decrypt()
+            .await
+            .expect("test_encrypt_decrypt error");
         println!("Encrypt/decrypt test passed");
     }
 
-    async fn setup_server() -> anyhow::Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>> {
+    async fn setup_server(
+    ) -> anyhow::Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>> {
         let addr = SERVER_ADDR.parse()?;
         let mut valv = Valv::new().await;
         let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
@@ -46,12 +49,15 @@ mod tests {
             .try_into()
             .unwrap();
         valv.set_master_key(master_key_bytes);
-        let api = API { valv: Arc::new(valv) };
+        let api = API {
+            valv: Arc::new(valv),
+        };
         let svc = MasterKeyManagementServiceServer::new(api);
         Ok(tokio::spawn(Server::builder().add_service(svc).serve(addr)))
     }
 
-    async fn setup_client() -> anyhow::Result<MasterKeyManagementServiceClient<tonic::transport::Channel>> {
+    async fn setup_client(
+    ) -> anyhow::Result<MasterKeyManagementServiceClient<tonic::transport::Channel>> {
         let channel = tonic::transport::Channel::from_static(CLIENT_ADDR)
             .connect()
             .await?;
@@ -74,7 +80,9 @@ mod tests {
 
     async fn test_valv() -> anyhow::Result<()> {
         let valv = Valv::new().await;
-        let key = valv.create_key("tenant".to_string(), "test".to_string()).await;
+        let key = valv
+            .create_key("tenant".to_string(), "test".to_string())
+            .await;
         let key_metadata = valv.get_key("tenant".to_string(), key.key_id).await;
         assert_eq!(key_metadata.unwrap().key_id, "test");
 
@@ -84,7 +92,7 @@ mod tests {
     async fn test_create_master_key() -> anyhow::Result<()> {
         let server_handle = setup_server().await?;
         wait_for_server().await?;
-        
+
         let mut client = setup_client().await?;
 
         // Make the gRPC call
@@ -108,7 +116,7 @@ mod tests {
     async fn test_encrypt_decrypt() -> anyhow::Result<()> {
         let server_handle = setup_server().await?;
         wait_for_server().await?;
-        
+
         let mut client = setup_client().await?;
 
         // Make the gRPC call
@@ -162,7 +170,6 @@ mod tests {
         // Assert the response
         assert_eq!(response.get_ref().master_key.is_some(), true);
 
-
         // Make the gRPC call to decrypt with another master key
         println!("Decrypting with the wrong key, should fail");
         let decrypt_request_another_key = tonic::Request::new(DecryptRequest {
@@ -178,7 +185,7 @@ mod tests {
 
         // Stop the server
         server_handle.abort();
-        
+
         Ok(())
     }
     // Similar tests can be written for other API methods

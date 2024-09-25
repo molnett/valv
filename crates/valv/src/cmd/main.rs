@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use valv::{
-    api,
-    valv::valv::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
-    Valv,
-};
 use secrecy::{ExposeSecret, Secret};
 use tonic::transport::Server;
+use valv::{
+    api, valv::valv::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
+    Valv,
+};
 
 #[derive(Parser)]
 struct Cli {

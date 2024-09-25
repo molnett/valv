@@ -1,10 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
-use foundationdb::{
-    directory::Directory,
-    tuple::unpack,
-    FdbError, RangeOption,
-};
+use foundationdb::{directory::Directory, tuple::unpack, FdbError, RangeOption};
 use prost::Message;
 
 use crate::gen::valv::internal;
@@ -101,11 +97,7 @@ impl FoundationDB {
 
 #[async_trait]
 impl ValvStorage for FoundationDB {
-    async fn get_key_metadata(
-        &self,
-        tenant: &str,
-        key_id: &str,
-    ) -> anyhow::Result<internal::Key> {
+    async fn get_key_metadata(&self, tenant: &str, key_id: &str) -> anyhow::Result<internal::Key> {
         let trx = self.database.create_trx()?;
         let key = self.get_metadata_fdb_key(&trx, tenant, key_id).await;
 
@@ -153,7 +145,7 @@ impl ValvStorage for FoundationDB {
         for key_value in key_values.into_iter() {
             // Skip if the key is not a metadata key
             if !key_value.key().ends_with(b"metadata\x00") {
-                continue
+                continue;
             }
 
             let key = internal::Key::decode(&key_value.value()[..]).expect("Failed to decode key");
@@ -163,11 +155,7 @@ impl ValvStorage for FoundationDB {
         Ok(keys)
     }
 
-    async fn update_key_metadata(
-        &self,
-        tenant: &str,
-        key: internal::Key,
-    ) -> anyhow::Result<()> {
+    async fn update_key_metadata(&self, tenant: &str, key: internal::Key) -> anyhow::Result<()> {
         let trx = self.database.create_trx()?;
         let path = self.get_metadata_fdb_key(&trx, tenant, &key.key_id).await;
 
@@ -184,21 +172,28 @@ impl ValvStorage for FoundationDB {
         version_id: u32,
     ) -> anyhow::Result<internal::KeyVersion> {
         let trx = self.database.create_trx()?;
-        
-        let version_key = self.get_version_fdb_key(&trx, tenant, key_id, version_id).await;
+
+        let version_key = self
+            .get_version_fdb_key(&trx, tenant, key_id, version_id)
+            .await;
 
         let key_value = trx.get(&version_key, false).await?;
 
         match key_value {
             Some(key_value) => {
-                let version = internal::KeyVersion::decode(&key_value[..]).expect("Failed to decode key");
+                let version =
+                    internal::KeyVersion::decode(&key_value[..]).expect("Failed to decode key");
                 Ok(version)
             }
             None => Err(anyhow!("Key not found")),
         }
     }
 
-    async fn get_key_versions(&self, tenant: &str, key_id: &str) -> anyhow::Result<Vec<internal::KeyVersion>> {
+    async fn get_key_versions(
+        &self,
+        tenant: &str,
+        key_id: &str,
+    ) -> anyhow::Result<Vec<internal::KeyVersion>> {
         let trx = self.database.create_trx()?;
         let directory = foundationdb::directory::DirectoryLayer::default();
 
@@ -232,7 +227,8 @@ impl ValvStorage for FoundationDB {
 
         for key_value in key_values.iter() {
             let test: Vec<u8> = unpack(&key_value.value()).expect("Failed to unpack key value");
-            let version = internal::KeyVersion::decode(&test[..]).expect("Failed to decode key version");
+            let version =
+                internal::KeyVersion::decode(&test[..]).expect("Failed to decode key version");
             key_versions.push(version);
         }
 
@@ -243,11 +239,13 @@ impl ValvStorage for FoundationDB {
         &self,
         tenant: &str,
         key: internal::Key,
-        key_version: internal::KeyVersion
+        key_version: internal::KeyVersion,
     ) -> anyhow::Result<()> {
         let trx = self.database.create_trx()?;
-        
-        let version_key = self.get_version_fdb_key(&trx, tenant, &key.key_id, key_version.version).await;
+
+        let version_key = self
+            .get_version_fdb_key(&trx, tenant, &key.key_id, key_version.version)
+            .await;
 
         trx.set(&version_key, &key_version.encode_to_vec());
         trx.commit().await.unwrap();
@@ -260,7 +258,7 @@ impl ValvStorage for FoundationDB {
         tenant: &str,
         key_id: &str,
         version_id: u32,
-        version: internal::KeyVersion
+        version: internal::KeyVersion,
     ) -> anyhow::Result<()> {
         todo!()
     }
