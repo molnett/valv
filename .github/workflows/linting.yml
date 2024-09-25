@@ -21,12 +21,10 @@ jobs:
         with:
           version: "7.3.27"
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
-          override: true
-          components: clippy
+          components: clippy, rustfmt
       - name: Setup buf
         uses: bufbuild/buf-setup-action@v1.40.1
       - name: Setup protoc
@@ -34,34 +32,6 @@ jobs:
       - name: Generate buf
         run: cd crates/valv && buf generate
       - name: Run Clippy
-        uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: -- -D warnings
-
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    permissions:
-      checks: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt
-      - name: Setup buf
-        uses: bufbuild/buf-setup-action@v1.40.1
-      - name: Setup protoc
-        run: sudo apt-get install protobuf-compiler
-      - name: Generate buf
-        run: cd crates/valv && buf generate
-      - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo clippy --all -- -D warnings
+      - name: Run fmt
+        run: cargo fmt --all -- --check

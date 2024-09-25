@@ -13,6 +13,7 @@ pub trait ValvStorage {
         key_id: &str,
         version_id: u32,
     ) -> anyhow::Result<internal::KeyVersion>;
+    #[allow(unused)]
     async fn get_key_versions(
         &self,
         tenant: &str,
@@ -24,6 +25,7 @@ pub trait ValvStorage {
         key: internal::Key,
         key_version: internal::KeyVersion,
     ) -> anyhow::Result<()>;
+    #[allow(unused)]
     async fn update_key_version(
         &self,
         tenant: &str,
