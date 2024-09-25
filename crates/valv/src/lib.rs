@@ -232,7 +232,7 @@ impl ValvAPI for Valv {
         );
 
         // Add version, IV and encrypted key to result
-        encrypted_result.extend_from_slice(&(key_version.version as u32).to_be_bytes());
+        encrypted_result.extend_from_slice(&(key_version.version).to_be_bytes());
 
         encrypted_result.extend_from_slice(&iv);
         encrypted_result.extend_from_slice(&encrypted_key);
