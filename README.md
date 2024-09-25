@@ -1,6 +1,6 @@
 # Valv - a Cloud Native Key Management System
 
-Valv is an open-source Key Management System (KMS) built for modern cloud environments. It is heavily inspired by Google Cloud KMS and their internal Keystore, offering compatibility with the Cloud KMS protobuf.
+Valv is an open-source Key Management System (KMS) built for modern cloud environments. It is heavily inspired by Google Cloud KMS and their internal Keystore, offering compatibility layer for the Cloud KMS protobuf.
 
 **⚠️ IMPORTANT: Valv is currently in technical alpha stage. It is not suitable for production use. APIs and functionality may change at any time without notice. Use at your own risk.**
 
@@ -92,23 +92,27 @@ This will display log messages and assertions as the tests run, providing more i
 
 Valv's Keystore is designed to encrypt millions of data-encryption-keys (DEKs) using a much smaller number of key-encryption-keys (KEKs). The KEKs are wrapped using the Root Keystore master key and stored in a highly available FoundationDB cluster.
 
-Key features of the Keystore:
-
-- Each active end-user has one KEK stored in two versions to allow key rotation
-- KEKs are wrapped by the Root Keystore master key before being persisted
-- Keystore data is stored and replicated using FoundationDB across all Keystore instances globally
-- Active backup for disaster recovery
-
-## Key Management System (KMS)
-
-Valv's KMS is compatible with the Google Cloud KMS protobuf, allowing for easy integration with existing systems. It provides:
+### Key features of the Keystore
 
 - Creation and management of cryptographic keys
 - Encryption and decryption operations
 - Automatic key rotation
 - Access control and auditing
 
-For detailed API usage, refer to the `google::kms` module in the source code.
+### How it works
+
+- Each active end-user has one KEK stored in two versions to allow key rotation
+- KEKs are wrapped by the Root Keystore master key before being persisted
+- Keystore data is stored and replicated using FoundationDB across all Keystore instances globally
+- Active backup for disaster recovery
+
+## Protocol Compatibility
+
+Valv's KMS is designed to be compatible with popular cloud KMS protocols, with a focus on modern cloud environments. While the specific protocol for compatibility has not been finalized, Google Cloud KMS is a strong contender due to its alignment with the Google Cloud Envelope Encryption whitepaper, which inspired Valv's design.
+
+A Google KMS compatibility layer can be found in the `examples/google-kms` directory, showcasing potential integration with Google Cloud KMS protobuf. However, please note that the final protocol choice is still under consideration.
+
+For detailed API usage, refer to the documentation in the respective compatibility layer directories.
 
 ## Missing Features and Roadmap
 
