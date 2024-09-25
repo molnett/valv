@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         api::server::API,
-        valv::valv::v1::{
+        valv::proto::v1::{
             master_key_management_service_server::MasterKeyManagementServiceServer,
             CreateMasterKeyRequest, DecryptRequest, EncryptRequest, MasterKey,
         },
@@ -12,7 +12,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
     use tonic::transport::Server;
 
-    use crate::valv::valv::v1::master_key_management_service_client::MasterKeyManagementServiceClient;
+    use crate::valv::proto::v1::master_key_management_service_client::MasterKeyManagementServiceClient;
     use tokio::time::sleep;
 
     const SERVER_ADDR: &str = "0.0.0.0:8080";

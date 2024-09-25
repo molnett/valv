@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       checks: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Setup FoundationDB
@@ -43,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       checks: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust

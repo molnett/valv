@@ -11,7 +11,7 @@ mod storage;
 mod tests;
 
 pub mod valv {
-    pub mod valv {
+    pub mod proto {
         pub mod v1 {
             include!("gen/valv.v1.rs");
         }
@@ -127,10 +127,9 @@ impl ValvAPI for Valv {
                 nanos: chrono::Utc::now().timestamp_subsec_nanos() as i32,
             }),
             rotation_schedule: Some(prost_types::Duration {
-                seconds: chrono::TimeDelta::days(30).num_seconds() as i64,
+                seconds: chrono::TimeDelta::days(30).num_seconds(),
                 nanos: 0,
             }),
-            ..Default::default()
         };
 
         self.db
@@ -203,9 +202,9 @@ impl ValvAPI for Valv {
         let decrypted_key_material = boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             self.master_key.expose_secret(),
-            Some(&iv),
+            Some(iv),
             &[],
-            &cipher,
+            cipher,
             tag,
         )
         .expect("Failed to decrypt key material");
@@ -270,9 +269,9 @@ impl ValvAPI for Valv {
         let decrypted_key_material = boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             self.master_key.expose_secret(),
-            Some(&kv_iv),
+            Some(kv_iv),
             &[],
-            &kv_cipher,
+            kv_cipher,
             kv_tag,
         )
         .expect("Failed to decrypt key material");
@@ -280,9 +279,9 @@ impl ValvAPI for Valv {
         boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             &decrypted_key_material,
-            Some(&iv),
+            Some(iv),
             &[],
-            &cipher,
+            cipher,
             tag,
         )
     }

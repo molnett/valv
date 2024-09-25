@@ -4,7 +4,7 @@ use clap::Parser;
 use secrecy::{ExposeSecret, Secret};
 use tonic::transport::Server;
 use valv::{
-    api, valv::valv::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
+    api, valv::proto::v1::master_key_management_service_server::MasterKeyManagementServiceServer,
     Valv,
 };
 

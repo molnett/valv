@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    valv::valv::v1::{
+    valv::proto::v1::{
         master_key_management_service_server::MasterKeyManagementService, CreateMasterKeyRequest,
         CreateMasterKeyResponse, CreateMasterKeyVersionRequest, CreateMasterKeyVersionResponse,
         DecryptRequest, DecryptResponse, DestroyMasterKeyVersionRequest,
@@ -97,7 +97,7 @@ impl MasterKeyManagementService for API {
             )
             .await;
 
-        let reply = crate::valv::valv::v1::EncryptResponse {
+        let reply = crate::valv::proto::v1::EncryptResponse {
             name: request.get_ref().master_key_id.clone(),
             ciphertext: encrypted_value.into(),
         };

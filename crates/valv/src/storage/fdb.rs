@@ -41,7 +41,7 @@ impl FoundationDB {
         let tenant_subspace = directory
             .create_or_open(
                 // the transaction used to read/write the directory.
-                &trx,
+                trx,
                 // the path used, which can view as a UNIX path like `/app/my-app`.
                 &path, // do not use any custom prefix or layer
                 None, None,
@@ -51,8 +51,7 @@ impl FoundationDB {
 
         let path = vec![String::from(key_id), String::from("metadata")];
 
-        let key = tenant_subspace.pack(&path).unwrap();
-        return key;
+        tenant_subspace.pack(&path).unwrap()
     }
 
     // Key structure
@@ -75,7 +74,7 @@ impl FoundationDB {
         let tenant_subspace = directory
             .create_or_open(
                 // the transaction used to read/write the directory.
-                &trx,
+                trx,
                 // the path used, which can view as a UNIX path like `/app/my-app`.
                 &path, // do not use any custom prefix or layer
                 None, None,
@@ -89,9 +88,7 @@ impl FoundationDB {
             version.to_string(),
         ];
 
-        let key = tenant_subspace.pack(&path).unwrap();
-
-        return key;
+        tenant_subspace.pack(&path).unwrap()
     }
 }
 
@@ -148,7 +145,7 @@ impl ValvStorage for FoundationDB {
                 continue;
             }
 
-            let key = internal::Key::decode(&key_value.value()[..]).expect("Failed to decode key");
+            let key = internal::Key::decode(key_value.value()).expect("Failed to decode key");
             keys.push(key);
         }
 
@@ -226,7 +223,7 @@ impl ValvStorage for FoundationDB {
         let mut key_versions: Vec<internal::KeyVersion> = vec![];
 
         for key_value in key_values.iter() {
-            let test: Vec<u8> = unpack(&key_value.value()).expect("Failed to unpack key value");
+            let test: Vec<u8> = unpack(key_value.value()).expect("Failed to unpack key value");
             let version =
                 internal::KeyVersion::decode(&test[..]).expect("Failed to decode key version");
             key_versions.push(version);
