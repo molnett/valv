@@ -7,10 +7,37 @@ Valv is an open-source Key Management System (KMS) built for modern cloud enviro
 ## Features
 
 - Regional deployment for high availability
-- Automatic key rotation (30-day schedule)
+- Automatic key rotation (default 30-day schedule, configurable)
 - Encryption of data-encryption-keys (DEKs) using key-encryption-keys (KEKs)
 - Compatible with Google Cloud KMS protobuf
 - Secure storage of KEKs using FoundationDB
+
+## Keystore
+
+Valv's Keystore is designed to encrypt millions of data-encryption-keys (DEKs) using a much smaller number of key-encryption-keys (KEKs). The KEKs are wrapped using the Root Keystore master key and stored in a highly available FoundationDB cluster.
+
+### Key features of the Keystore
+
+- Creation and management of cryptographic keys
+- Encryption and decryption operations
+- Automatic key rotation (default 30-day schedule, configurable)
+- Access control and auditing
+
+### How it works
+
+- Each active end-user has one KEK stored in two versions to allow key rotation
+- KEKs are wrapped by the Root Keystore master key before being persisted
+- Keystore data is stored and replicated using FoundationDB across all Keystore instances globally
+- Active backup for disaster recovery
+- By default, keys are automatically rotated every 30 days, but this schedule can be customized
+
+## Protocol Compatibility
+
+Valv's KMS is designed to be compatible with popular cloud KMS protocols, with a focus on modern cloud environments. While the specific protocol for compatibility has not been finalized, Google Cloud KMS is a strong contender due to its alignment with the Google Cloud Envelope Encryption whitepaper, which inspired Valv's design.
+
+A Google KMS compatibility layer can be found in the `examples/google-kms` directory, showcasing potential integration with Google Cloud KMS protobuf. However, please note that the final protocol choice is still under consideration.
+
+For detailed API usage, refer to the documentation in the respective compatibility layer directories.
 
 ## Getting Started
 
@@ -87,32 +114,6 @@ cargo test -- --nocapture
 ```
 
 This will display log messages and assertions as the tests run, providing more insight into the test process and any potential issues.
-
-## Keystore
-
-Valv's Keystore is designed to encrypt millions of data-encryption-keys (DEKs) using a much smaller number of key-encryption-keys (KEKs). The KEKs are wrapped using the Root Keystore master key and stored in a highly available FoundationDB cluster.
-
-### Key features of the Keystore
-
-- Creation and management of cryptographic keys
-- Encryption and decryption operations
-- Automatic key rotation
-- Access control and auditing
-
-### How it works
-
-- Each active end-user has one KEK stored in two versions to allow key rotation
-- KEKs are wrapped by the Root Keystore master key before being persisted
-- Keystore data is stored and replicated using FoundationDB across all Keystore instances globally
-- Active backup for disaster recovery
-
-## Protocol Compatibility
-
-Valv's KMS is designed to be compatible with popular cloud KMS protocols, with a focus on modern cloud environments. While the specific protocol for compatibility has not been finalized, Google Cloud KMS is a strong contender due to its alignment with the Google Cloud Envelope Encryption whitepaper, which inspired Valv's design.
-
-A Google KMS compatibility layer can be found in the `examples/google-kms` directory, showcasing potential integration with Google Cloud KMS protobuf. However, please note that the final protocol choice is still under consideration.
-
-For detailed API usage, refer to the documentation in the respective compatibility layer directories.
 
 ## Missing Features and Roadmap
 
