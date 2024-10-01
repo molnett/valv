@@ -96,16 +96,6 @@ The conformance tests cover the following areas:
 - Pagination for listing operations
 - Error cases and edge conditions
 
-These tests use a `TestClient` struct that wraps the `KeyManagementServiceClient` to interact with the Valv server. The main test function, `run_comprehensive_tests`, orchestrates the execution of various test scenarios.
-
-Key test scenarios include:
-
-- Creating and managing CryptoKeys
-- Encrypting and decrypting data
-- Verifying key rotation schedules
-- Testing pagination for large result sets
-- Handling error cases and invalid inputs
-
 For more detailed output during test execution, use:
 
 ```shell
