@@ -6,7 +6,6 @@ Valv is an open-source Key Management System (KMS) built for modern cloud enviro
 
 ## Features
 
-- Regional deployment for high availability
 - Automatic key rotation (default 30-day schedule, configurable)
 - Encryption of data-encryption-keys (DEKs) using key-encryption-keys (KEKs)
 - Compatible with Google Cloud KMS protobuf
