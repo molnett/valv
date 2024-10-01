@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    valv::keystore::v1::{
+    valv::proto::v1::{
         master_key_management_service_server::MasterKeyManagementService, CreateMasterKeyRequest,
         CreateMasterKeyResponse, CreateMasterKeyVersionRequest, CreateMasterKeyVersionResponse,
         DecryptRequest, DecryptResponse, DestroyMasterKeyVersionRequest,
@@ -9,11 +9,11 @@ use crate::{
         ListMasterKeyVersionsRequest, ListMasterKeyVersionsResponse, ListMasterKeysRequest,
         ListMasterKeysResponse, MasterKey, MasterKeyVersion,
     },
-    Keystore, KeystoreAPI,
+    Valv, ValvAPI,
 };
 
 pub struct API {
-    pub keystore: Arc<Keystore>,
+    pub valv: Arc<Valv>,
 }
 
 #[tonic::async_trait]
@@ -23,8 +23,11 @@ impl MasterKeyManagementService for API {
         request: tonic::Request<CreateMasterKeyRequest>,
     ) -> Result<tonic::Response<CreateMasterKeyResponse>, tonic::Status> {
         let key = self
-            .keystore
-            .create_key(request.get_ref().keyring_name.clone(), request.get_ref().master_key_id.clone())
+            .valv
+            .create_key(
+                request.get_ref().keyring_name.clone(),
+                request.get_ref().master_key_id.clone(),
+            )
             .await;
 
         let reply = CreateMasterKeyResponse {
@@ -85,15 +88,18 @@ impl MasterKeyManagementService for API {
         &self,
         request: tonic::Request<EncryptRequest>,
     ) -> Result<tonic::Response<EncryptResponse>, tonic::Status> {
-        let encrypted_value = self.keystore.encrypt(
-            request.get_ref().keyring_name.clone(),
-            request.get_ref().master_key_id.clone(),
-            request.get_ref().plaintext.clone().to_vec(),
-        ).await;
+        let encrypted_value = self
+            .valv
+            .encrypt(
+                request.get_ref().keyring_name.clone(),
+                request.get_ref().master_key_id.clone(),
+                request.get_ref().plaintext.clone().to_vec(),
+            )
+            .await;
 
-        let reply = crate::valv::keystore::v1::EncryptResponse {
+        let reply = crate::valv::proto::v1::EncryptResponse {
             name: request.get_ref().master_key_id.clone(),
-            ciphertext: encrypted_value.into()
+            ciphertext: encrypted_value.into(),
         };
 
         Ok(tonic::Response::new(reply))
@@ -103,11 +109,14 @@ impl MasterKeyManagementService for API {
         &self,
         request: tonic::Request<DecryptRequest>,
     ) -> Result<tonic::Response<DecryptResponse>, tonic::Status> {
-        let decrypted_result = self.keystore.decrypt(
-            request.get_ref().keyring_name.clone(),
-            request.get_ref().master_key_id.clone(),
-            request.get_ref().ciphertext.clone().to_vec(),
-        ).await;
+        let decrypted_result = self
+            .valv
+            .decrypt(
+                request.get_ref().keyring_name.clone(),
+                request.get_ref().master_key_id.clone(),
+                request.get_ref().ciphertext.clone().to_vec(),
+            )
+            .await;
         match decrypted_result {
             Ok(decrypted_value) => {
                 let reply = DecryptResponse {
@@ -116,7 +125,7 @@ impl MasterKeyManagementService for API {
                 return Ok(tonic::Response::new(reply));
             }
             Err(err) => {
-                println!("Failed to decrypt ciphertext {err}");   
+                println!("Failed to decrypt ciphertext {err}");
                 return Err(tonic::Status::new(
                     tonic::Code::InvalidArgument,
                     "Invalid ciphertext",

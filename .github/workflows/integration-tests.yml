@@ -1,4 +1,4 @@
-name: Rust
+name: Integration Tests
 
 on:
   push:
@@ -27,16 +27,16 @@ jobs:
     - name: Setup protoc
       run: sudo apt-get install protobuf-compiler
     - name: Generate buf
-      run: cd crates/keystore && buf generate
+      run: cd crates/valv && buf generate
     - name: Build
       run: cargo build
-    - name: Run Keystore tests
-      run: cargo test -p keystore
-    - name: Run Valv server and integration tests
+    - name: Run Valv tests
+      run: cargo test -p valv
+    - name: Run KMS server and integration tests
       run: |
-        cargo run -p valv &
+        cd examples/google-kms && cargo run &
         SERVER_PID=$!
         sleep 1
-        cargo test -p valv -- --nocapture
+        cargo test -- --nocapture
         kill $SERVER_PID
 

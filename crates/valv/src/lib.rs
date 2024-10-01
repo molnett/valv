@@ -1,10 +1,9 @@
-
 use boring::error::ErrorStack;
-use gen::keystore::internal;
+use gen::valv::internal;
 use prost::bytes::Buf;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
-use storage::{fdb::FoundationDB, interface::KeystoreStorage};
+use storage::{fdb::FoundationDB, interface::ValvStorage};
 
 pub mod api;
 pub mod gen;
@@ -12,9 +11,9 @@ mod storage;
 mod tests;
 
 pub mod valv {
-    pub mod keystore {
+    pub mod proto {
         pub mod v1 {
-            include!("gen/keystore.v1.rs");
+            include!("gen/valv.v1.rs");
         }
     }
 }
@@ -38,26 +37,36 @@ pub struct KeyMaterial {
 }
 
 #[async_trait::async_trait]
-pub trait KeystoreAPI: Send + Sync {
+pub trait ValvAPI: Send + Sync {
     async fn create_key(&self, tenant: String, name: String) -> internal::Key;
     async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key>;
     async fn list_keys(&self, tenant: String) -> Option<Vec<internal::Key>>;
     async fn update_key(&self, tenant: String, key: internal::Key) -> internal::Key;
 
-    async fn get_key_version(&self, tenant: String, key_name: String, version_id: u32) -> Option<internal::KeyVersion>;
+    async fn get_key_version(
+        &self,
+        tenant: String,
+        key_name: String,
+        version_id: u32,
+    ) -> Option<internal::KeyVersion>;
 
     async fn encrypt(&self, tenant: String, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
-    async fn decrypt(&self, tenant: String, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack>;
+    async fn decrypt(
+        &self,
+        tenant: String,
+        key_name: String,
+        ciphertext: Vec<u8>,
+    ) -> Result<Vec<u8>, ErrorStack>;
 }
 
-pub struct Keystore {
+pub struct Valv {
     pub db: FoundationDB,
     pub master_key: Secret<[u8; 32]>,
 }
 
-impl Keystore {
-    pub async fn new() -> Keystore {
-        Keystore {
+impl Valv {
+    pub async fn new() -> Valv {
+        Valv {
             db: FoundationDB::new("local").await.unwrap(),
             master_key: [0; 32].into(),
         }
@@ -69,7 +78,7 @@ impl Keystore {
 }
 
 #[async_trait::async_trait]
-impl KeystoreAPI for Keystore {
+impl ValvAPI for Valv {
     async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key> {
         let key = self
             .db
@@ -102,12 +111,8 @@ impl KeystoreAPI for Keystore {
         )
         .unwrap();
 
-        let mut encrypted_result = Vec::with_capacity(
-            iv.len() +
-            encrypted_key.len() +
-            tag.len()
-        );
-    
+        let mut encrypted_result = Vec::with_capacity(iv.len() + encrypted_key.len() + tag.len());
+
         // Add IV, key material and tag to result
         encrypted_result.extend_from_slice(&iv);
         encrypted_result.extend_from_slice(&encrypted_key);
@@ -122,14 +127,15 @@ impl KeystoreAPI for Keystore {
                 nanos: chrono::Utc::now().timestamp_subsec_nanos() as i32,
             }),
             rotation_schedule: Some(prost_types::Duration {
-                seconds: chrono::TimeDelta::days(30).num_seconds() as i64,
+                seconds: chrono::TimeDelta::days(30).num_seconds(),
                 nanos: 0,
             }),
-            ..Default::default()
         };
 
         self.db
-            .update_key_metadata(tenant.as_str(), key.clone()).await.unwrap();
+            .update_key_metadata(tenant.as_str(), key.clone())
+            .await
+            .unwrap();
 
         let key_version = internal::KeyVersion {
             key_id: name.clone(),
@@ -144,11 +150,7 @@ impl KeystoreAPI for Keystore {
         };
 
         self.db
-            .append_key_version(
-                tenant.as_str(),
-                key.clone(),
-                key_version,
-            )
+            .append_key_version(tenant.as_str(), key.clone(), key_version)
             .await
             .unwrap();
 
@@ -156,19 +158,43 @@ impl KeystoreAPI for Keystore {
     }
 
     async fn update_key(&self, tenant: String, key: internal::Key) -> internal::Key {
-        self.db.update_key_metadata(tenant.as_str(), key.clone()).await.unwrap();
-        
+        self.db
+            .update_key_metadata(tenant.as_str(), key.clone())
+            .await
+            .unwrap();
+
         key
     }
 
-    async fn get_key_version(&self, tenant: String, key_name: String, version_id: u32) -> Option<internal::KeyVersion> {
-        let key_version = self.db.get_key_version(tenant.as_str(), &key_name, version_id).await.unwrap();
+    async fn get_key_version(
+        &self,
+        tenant: String,
+        key_name: String,
+        version_id: u32,
+    ) -> Option<internal::KeyVersion> {
+        let key_version = self
+            .db
+            .get_key_version(tenant.as_str(), &key_name, version_id)
+            .await
+            .unwrap();
         Some(key_version)
     }
 
     async fn encrypt(&self, tenant: String, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
-        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await.unwrap();
-        let key_version = self.db.get_key_version(tenant.as_str(), &key.key_id, key.primary_version_id.parse().unwrap()).await.unwrap();
+        let key = self
+            .db
+            .get_key_metadata(tenant.as_str(), &key_name)
+            .await
+            .unwrap();
+        let key_version = self
+            .db
+            .get_key_version(
+                tenant.as_str(),
+                &key.key_id,
+                key.primary_version_id.parse().unwrap(),
+            )
+            .await
+            .unwrap();
 
         let (iv, remainder) = key_version.key_material.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
@@ -176,11 +202,12 @@ impl KeystoreAPI for Keystore {
         let decrypted_key_material = boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             self.master_key.expose_secret(),
-            Some(&iv),
+            Some(iv),
             &[],
-            &cipher,
+            cipher,
             tag,
-        ).expect("Failed to decrypt key material");
+        )
+        .expect("Failed to decrypt key material");
 
         let mut iv = [0; 12];
         boring::rand::rand_bytes(&mut iv).unwrap();
@@ -201,11 +228,11 @@ impl KeystoreAPI for Keystore {
             4 + // Key version (u32)
             iv.len() +
             encrypted_key.len() +
-            tag.len()
+            tag.len(),
         );
-    
+
         // Add version, IV and encrypted key to result
-        encrypted_result.extend_from_slice(&(key_version.version as u32).to_be_bytes());
+        encrypted_result.extend_from_slice(&(key_version.version).to_be_bytes());
 
         encrypted_result.extend_from_slice(&iv);
         encrypted_result.extend_from_slice(&encrypted_key);
@@ -214,14 +241,27 @@ impl KeystoreAPI for Keystore {
         encrypted_result
     }
 
-    async fn decrypt(&self, tenant: String, key_name: String, ciphertext: Vec<u8>) -> Result<Vec<u8>, ErrorStack> {
+    async fn decrypt(
+        &self,
+        tenant: String,
+        key_name: String,
+        ciphertext: Vec<u8>,
+    ) -> Result<Vec<u8>, ErrorStack> {
         let (key_version_id, remainder) = ciphertext.split_at(4);
         let (iv, remainder) = remainder.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
-        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await.unwrap();
+        let key = self
+            .db
+            .get_key_metadata(tenant.as_str(), &key_name)
+            .await
+            .unwrap();
         let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
-        let key_version = self.db.get_key_version(tenant.as_str(), &key.key_id, key_version_id).await.unwrap();
+        let key_version = self
+            .db
+            .get_key_version(tenant.as_str(), &key.key_id, key_version_id)
+            .await
+            .unwrap();
 
         let (kv_iv, kv_remainder) = key_version.key_material.split_at(12);
         let (kv_cipher, kv_tag) = kv_remainder.split_at(kv_remainder.len() - 16);
@@ -229,18 +269,19 @@ impl KeystoreAPI for Keystore {
         let decrypted_key_material = boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             self.master_key.expose_secret(),
-            Some(&kv_iv),
+            Some(kv_iv),
             &[],
-            &kv_cipher,
+            kv_cipher,
             kv_tag,
-        ).expect("Failed to decrypt key material");
+        )
+        .expect("Failed to decrypt key material");
 
         boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             &decrypted_key_material,
-            Some(&iv),
+            Some(iv),
             &[],
-            &cipher,
+            cipher,
             tag,
         )
     }

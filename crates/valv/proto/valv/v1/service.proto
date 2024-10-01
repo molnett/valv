@@ -1,9 +1,9 @@
 syntax = "proto3";
 
-package keystore.v1;
+package valv.v1;
 
 import "google/api/field_behavior.proto";
-import "keystore/v1/resources.proto";
+import "valv/v1/resources.proto";
 
 service MasterKeyManagementService {
   rpc CreateMasterKey(CreateMasterKeyRequest) returns (CreateMasterKeyResponse);

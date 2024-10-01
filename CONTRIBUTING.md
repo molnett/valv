@@ -5,7 +5,7 @@ We're excited that you're interested in contributing to Valv! This document outl
 ## Getting Started
 
 1. Fork the repository on GitHub.
-2. Clone your fork locally: `git clone https://github.com/molnett/valv.git`
+2. Clone your fork locally: `git clone https://github.com/<USERNAME>/valv.git`
 3. Create a new branch for your feature or bug fix: `git checkout -b your-branch-name`
 4. Make your changes and commit them with a clear commit message.
 5. Push your changes to your fork: `git push origin your-branch-name`
@@ -22,8 +22,7 @@ We're excited that you're interested in contributing to Valv! This document outl
 2. Update the README.md with details of changes to the interface, if applicable.
 3. Add or update tests as necessary to cover your changes.
 4. Ensure all tests pass before submitting your pull request.
-5. Update the CHANGELOG.md with details of your changes.
-6. Your pull request will be reviewed by maintainers, who may request changes or ask questions.
+5. Your pull request will be reviewed by maintainers, who may request changes or ask questions.
 
 ## Reporting Bugs
 

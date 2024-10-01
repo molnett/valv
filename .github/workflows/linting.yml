@@ -1,0 +1,37 @@
+name: Rust Checks
+
+on:
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup FoundationDB
+        uses: foundationdb-rs/foundationdb-actions-install@v2.1.0
+        with:
+          version: "7.3.27"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1.40.1
+      - name: Setup protoc
+        run: sudo apt-get install protobuf-compiler
+      - name: Generate buf
+        run: cd crates/valv && buf generate
+      - name: Run Clippy
+        run: cargo clippy --all -- -D warnings
+      - name: Run fmt
+        run: cargo fmt --all -- --check

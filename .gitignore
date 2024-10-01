@@ -1,2 +1,16 @@
-/target
+# Rust build artifacts
+target/
 gen/
+
+# IDE and editor files
+.project
+.vscode/
+.idea/
+
+# Temporary and cache files
+*.tmp
+*.cache
+
+# OS-specific files
+.DS_Store
+Thumbs.db
