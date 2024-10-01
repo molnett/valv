@@ -1,6 +1,6 @@
 # Valv - a Cloud Native Key Management System
 
-Valv is an open-source Key Management System (KMS) built for modern cloud environments. It is heavily inspired by Google Cloud KMS and their internal Keystore, offering compatibility layer for the Cloud KMS protobuf.
+Valv is an open-source Key Management System (KMS) built for modern cloud environments. It is heavily inspired by Google Cloud KMS and their internal Keystore.
 
 **⚠️ IMPORTANT: Valv is currently in technical alpha stage and does not implement all features fully. It is not suitable for production use. APIs and functionality may change at any time without notice. Use at your own risk.**
 
