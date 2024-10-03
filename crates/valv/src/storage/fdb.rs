@@ -1,9 +1,11 @@
-use anyhow::anyhow;
 use async_trait::async_trait;
-use foundationdb::{directory::Directory, tuple::unpack, FdbError, RangeOption};
+use foundationdb::{directory::Directory, tuple::unpack, RangeOption};
 use prost::Message;
 
-use crate::gen::valv::internal;
+use crate::{
+    errors::{Result, ValvError},
+    gen::valv::internal,
+};
 
 use super::interface::ValvStorage;
 
@@ -13,7 +15,7 @@ pub struct FoundationDB {
 }
 
 impl FoundationDB {
-    pub async fn new(location: &str) -> Result<FoundationDB, FdbError> {
+    pub async fn new(location: &str) -> Result<FoundationDB> {
         Ok(FoundationDB {
             database: foundationdb::Database::new(None)?,
             location: location.to_string(),
@@ -29,7 +31,7 @@ impl FoundationDB {
         trx: &foundationdb::Transaction,
         tenant: &str,
         key_id: &str,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>> {
         let directory = foundationdb::directory::DirectoryLayer::default();
 
         let path = vec![
@@ -38,7 +40,7 @@ impl FoundationDB {
             String::from("keys"),
         ];
 
-        let tenant_subspace = directory
+        let tenant_subspace = match directory
             .create_or_open(
                 // the transaction used to read/write the directory.
                 trx,
@@ -47,11 +49,17 @@ impl FoundationDB {
                 None, None,
             )
             .await
-            .expect("could not create directory");
+        {
+            Ok(subspace) => subspace,
+            Err(e) => return Err(ValvError::DirectoryError(e)),
+        };
 
         let path = vec![String::from(key_id), String::from("metadata")];
 
-        tenant_subspace.pack(&path).unwrap()
+        match tenant_subspace.pack(&path) {
+            Ok(key) => Ok(key),
+            Err(e) => Err(ValvError::DirectoryError(e)),
+        }
     }
 
     // Key structure
@@ -62,7 +70,7 @@ impl FoundationDB {
         tenant: &str,
         key_id: &str,
         version: u32,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>> {
         let directory = foundationdb::directory::DirectoryLayer::default();
 
         let path = vec![
@@ -71,7 +79,7 @@ impl FoundationDB {
             String::from("keys"),
         ];
 
-        let tenant_subspace = directory
+        let tenant_subspace = match directory
             .create_or_open(
                 // the transaction used to read/write the directory.
                 trx,
@@ -80,7 +88,10 @@ impl FoundationDB {
                 None, None,
             )
             .await
-            .unwrap();
+        {
+            Ok(subspace) => subspace,
+            Err(e) => return Err(ValvError::DirectoryError(e)),
+        };
 
         let path = vec![
             String::from(key_id),
@@ -88,27 +99,30 @@ impl FoundationDB {
             version.to_string(),
         ];
 
-        tenant_subspace.pack(&path).unwrap()
+        match tenant_subspace.pack(&path) {
+            Ok(key) => Ok(key),
+            Err(e) => Err(ValvError::DirectoryError(e)),
+        }
     }
 }
 
 #[async_trait]
 impl ValvStorage for FoundationDB {
-    async fn get_key_metadata(&self, tenant: &str, key_id: &str) -> anyhow::Result<internal::Key> {
+    async fn get_key_metadata(&self, tenant: &str, key_id: &str) -> Result<internal::Key> {
         let trx = self.database.create_trx()?;
-        let key = self.get_metadata_fdb_key(&trx, tenant, key_id).await;
+        let key = self.get_metadata_fdb_key(&trx, tenant, key_id).await?;
 
         let key_value = trx.get(&key, false).await?;
         match key_value {
             Some(key_value) => {
-                let key = internal::Key::decode(&key_value[..]).expect("Failed to decode key");
+                let key = internal::Key::decode(&key_value[..]).map_err(ValvError::Decode)?;
                 Ok(key)
             }
-            None => Err(anyhow!("Key not found")),
+            None => Err(ValvError::KeyNotFound(key_id.to_string())),
         }
     }
 
-    async fn list_key_metadata(&self, tenant: &str) -> anyhow::Result<Vec<internal::Key>> {
+    async fn list_key_metadata(&self, tenant: &str) -> Result<Vec<internal::Key>> {
         let trx = self.database.create_trx()?;
         let directory = foundationdb::directory::DirectoryLayer::default();
 
@@ -118,7 +132,7 @@ impl ValvStorage for FoundationDB {
             String::from("keys"),
         ];
 
-        let tenant_subspace = directory
+        let tenant_subspace = match directory
             .create_or_open(
                 // the transaction used to read/write the directory.
                 &trx,
@@ -127,14 +141,17 @@ impl ValvStorage for FoundationDB {
                 None, None,
             )
             .await
-            .unwrap();
+        {
+            Ok(subspace) => subspace,
+            Err(e) => return Err(ValvError::DirectoryError(e)),
+        };
 
-        let range = RangeOption::from(tenant_subspace.range().unwrap());
+        let range = match tenant_subspace.range() {
+            Ok(range) => RangeOption::from(range),
+            Err(e) => return Err(ValvError::DirectoryError(e)),
+        };
 
-        let key_values = trx
-            .get_range(&range, 1_024, false)
-            .await
-            .expect("failed to get keys");
+        let key_values = trx.get_range(&range, 1_024, false).await?;
 
         let mut keys: Vec<internal::Key> = vec![];
 
@@ -145,19 +162,19 @@ impl ValvStorage for FoundationDB {
                 continue;
             }
 
-            let key = internal::Key::decode(key_value.value()).expect("Failed to decode key");
+            let key = internal::Key::decode(key_value.value())?;
             keys.push(key);
         }
 
         Ok(keys)
     }
 
-    async fn update_key_metadata(&self, tenant: &str, key: internal::Key) -> anyhow::Result<()> {
+    async fn update_key_metadata(&self, tenant: &str, key: internal::Key) -> Result<()> {
         let trx = self.database.create_trx()?;
-        let path = self.get_metadata_fdb_key(&trx, tenant, &key.key_id).await;
+        let path = self.get_metadata_fdb_key(&trx, tenant, &key.key_id).await?;
 
         trx.set(&path, &key.encode_to_vec());
-        trx.commit().await.unwrap();
+        trx.commit().await?;
 
         Ok(())
     }
@@ -167,22 +184,22 @@ impl ValvStorage for FoundationDB {
         tenant: &str,
         key_id: &str,
         version_id: u32,
-    ) -> anyhow::Result<internal::KeyVersion> {
+    ) -> Result<internal::KeyVersion> {
         let trx = self.database.create_trx()?;
 
         let version_key = self
             .get_version_fdb_key(&trx, tenant, key_id, version_id)
-            .await;
+            .await?;
 
         let key_value = trx.get(&version_key, false).await?;
 
         match key_value {
             Some(key_value) => {
                 let version =
-                    internal::KeyVersion::decode(&key_value[..]).expect("Failed to decode key");
+                    internal::KeyVersion::decode(&key_value[..]).map_err(ValvError::Decode)?;
                 Ok(version)
             }
-            None => Err(anyhow!("Key not found")),
+            None => Err(ValvError::KeyNotFound(key_id.to_string())),
         }
     }
 
@@ -190,7 +207,7 @@ impl ValvStorage for FoundationDB {
         &self,
         tenant: &str,
         key_id: &str,
-    ) -> anyhow::Result<Vec<internal::KeyVersion>> {
+    ) -> Result<Vec<internal::KeyVersion>> {
         let trx = self.database.create_trx()?;
         let directory = foundationdb::directory::DirectoryLayer::default();
 
@@ -202,7 +219,7 @@ impl ValvStorage for FoundationDB {
             String::from("versions"),
         ];
 
-        let versions_directory = directory
+        let versions_directory = match directory
             .create_or_open(
                 // the transaction used to read/write the directory.
                 &trx,
@@ -211,21 +228,23 @@ impl ValvStorage for FoundationDB {
                 None, None,
             )
             .await
-            .unwrap();
+        {
+            Ok(subspace) => subspace,
+            Err(e) => return Err(ValvError::DirectoryError(e)),
+        };
 
-        let range = RangeOption::from(versions_directory.range().unwrap());
+        let range = match versions_directory.range() {
+            Ok(range) => RangeOption::from(range),
+            Err(e) => return Err(ValvError::DirectoryError(e)),
+        };
 
-        let key_values = trx
-            .get_range(&range, 1_024, false)
-            .await
-            .expect("failed to get key versions");
+        let key_values = trx.get_range(&range, 1_024, false).await?;
 
         let mut key_versions: Vec<internal::KeyVersion> = vec![];
 
         for key_value in key_values.iter() {
-            let test: Vec<u8> = unpack(key_value.value()).expect("Failed to unpack key value");
-            let version =
-                internal::KeyVersion::decode(&test[..]).expect("Failed to decode key version");
+            let test: Vec<u8> = unpack(key_value.value()).map_err(ValvError::TuplePacking)?;
+            let version = internal::KeyVersion::decode(&test[..]).map_err(ValvError::Decode)?;
             key_versions.push(version);
         }
 
@@ -237,15 +256,15 @@ impl ValvStorage for FoundationDB {
         tenant: &str,
         key: internal::Key,
         key_version: internal::KeyVersion,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let trx = self.database.create_trx()?;
 
         let version_key = self
             .get_version_fdb_key(&trx, tenant, &key.key_id, key_version.version)
-            .await;
+            .await?;
 
         trx.set(&version_key, &key_version.encode_to_vec());
-        trx.commit().await.unwrap();
+        trx.commit().await?;
 
         Ok(())
     }
@@ -256,7 +275,7 @@ impl ValvStorage for FoundationDB {
         _key_id: &str,
         _version_id: u32,
         _version: internal::KeyVersion,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         todo!()
     }
 }

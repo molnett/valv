@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 message Key {
   string key_id = 1;
-  string primary_version_id = 2;
+  uint32 primary_version_id = 2;
   string purpose = 3; // e.g., "ENCRYPT_DECRYPT", "SIGN_VERIFY"
   google.protobuf.Timestamp creation_time = 4;
   google.protobuf.Duration rotation_schedule = 5;

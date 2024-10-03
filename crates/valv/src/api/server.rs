@@ -30,14 +30,24 @@ impl MasterKeyManagementService for API {
             )
             .await;
 
-        let reply = CreateMasterKeyResponse {
-            master_key: Some(MasterKey {
-                name: key.key_id,
-                ..Default::default()
-            }),
-        };
-
-        Ok(tonic::Response::new(reply))
+        match key {
+            Ok(key) => {
+                let reply = CreateMasterKeyResponse {
+                    master_key: Some(MasterKey {
+                        name: key.key_id,
+                        ..Default::default()
+                    }),
+                };
+                return Ok(tonic::Response::new(reply));
+            }
+            Err(err) => {
+                println!("Failed to create master key {err}");
+                return Err(tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("Failed to create master key: {err}"),
+                ));
+            }
+        }
     }
 
     async fn list_master_keys(
@@ -97,12 +107,23 @@ impl MasterKeyManagementService for API {
             )
             .await;
 
-        let reply = crate::valv::proto::v1::EncryptResponse {
-            name: request.get_ref().master_key_id.clone(),
-            ciphertext: encrypted_value.into(),
-        };
+        match encrypted_value {
+            Ok(encrypted_value) => {
+                let reply = crate::valv::proto::v1::EncryptResponse {
+                    name: request.get_ref().master_key_id.clone(),
+                    ciphertext: encrypted_value.into(),
+                };
 
-        Ok(tonic::Response::new(reply))
+                Ok(tonic::Response::new(reply))
+            }
+            Err(err) => {
+                println!("Failed to encrypt plaintext {err}");
+                return Err(tonic::Status::new(
+                    tonic::Code::Internal,
+                    "Failed to encrypt plaintext",
+                ));
+            }
+        }
     }
 
     async fn decrypt(

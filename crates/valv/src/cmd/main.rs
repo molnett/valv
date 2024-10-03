@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 
 use clap::Parser;
@@ -18,13 +20,15 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
+    let _guard = unsafe { foundationdb::boot() };
+
     let args = Cli::parse();
 
-    let mut valv = Valv::new().await;
+    let mut valv = Valv::new().await.expect("Failed to initialize Valv");
 
     let master_key = args.master_key.clone().expose_secret().clone().into_bytes()[..32]
         .try_into()
-        .unwrap();
+        .expect("Master key must be 32 bytes");
 
     valv.set_master_key(master_key);
 
