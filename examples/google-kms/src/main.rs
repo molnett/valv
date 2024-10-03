@@ -5,12 +5,13 @@ pub mod google {
 }
 
 use crc32c::crc32c;
-use google::kms::{crypto_key::RotationSchedule, key_management_service_server::KeyManagementService};
-use valv::{gen::valv::internal, ValvAPI};
-use prost_types::Duration;
+use google::kms::{
+    crypto_key::RotationSchedule, key_management_service_server::KeyManagementService,
+};
 use tokio::sync::Mutex;
+use valv::{gen::valv::internal, ValvAPI};
 
-mod tests;
+mod integration_tests;
 
 struct GoogleKMS {
     pub valv: Mutex<valv::Valv>,
@@ -29,20 +30,36 @@ impl KeyManagementService for GoogleKMS {
         &self,
         request: tonic::Request<google::kms::ListCryptoKeysRequest>,
     ) -> Result<tonic::Response<google::kms::ListCryptoKeysResponse>, tonic::Status> {
-        let keys = self.valv.lock().await.list_keys(request.into_inner().parent.split('/').last().unwrap().to_string()).await;
-        
-        return Ok(tonic::Response::new(google::kms::ListCryptoKeysResponse {
-            crypto_keys: keys.unwrap_or_default().into_iter().map(|key| {
-                google::kms::CryptoKey {
-                    name: key.key_id,
-                    purpose: google::kms::crypto_key::CryptoKeyPurpose::EncryptDecrypt as i32,
-                    crypto_key_backend: "valv".to_string(),
-                    ..Default::default()
-                }
-            }).collect(),
-            next_page_token: "".to_string(),
-            total_size: 0,
-        }));
+        let keys = match request.into_inner().parent.split('/').last() {
+            Some(key_id) => self.valv.lock().await.list_keys(key_id.to_string()).await,
+            None => {
+                return Err(tonic::Status::invalid_argument("key_id malformated"));
+            }
+        };
+
+        match keys {
+            Ok(keys) => {
+                return Ok(tonic::Response::new(google::kms::ListCryptoKeysResponse {
+                    crypto_keys: keys
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|key| google::kms::CryptoKey {
+                            name: key.key_id,
+                            purpose: google::kms::crypto_key::CryptoKeyPurpose::EncryptDecrypt
+                                as i32,
+                            crypto_key_backend: "valv".to_string(),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    next_page_token: "".to_string(),
+                    total_size: 0,
+                }));
+            }
+            Err(e) => {
+                println!("error: {}", e);
+                return Err(tonic::Status::internal(e.to_string()));
+            }
+        }
     }
 
     async fn list_crypto_key_versions(
@@ -71,27 +88,57 @@ impl KeyManagementService for GoogleKMS {
         request: tonic::Request<google::kms::GetCryptoKeyRequest>,
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
         let request = request.into_inner();
-        
-        let tenant_name = request.name.split('/').nth(5).unwrap().to_string();
-        let key_name = request.name.split('/').last().unwrap().to_string();
 
-        let key = self.valv.lock().await.get_key(
-            tenant_name.clone(),
-            key_name.clone(),
-        ).await;
+        let tenant_name = match request.name.split('/').nth(5) {
+            Some(tenant_name) => tenant_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("tenant_name malformated"));
+            }
+        };
+        let key_name = match request.name.split('/').last() {
+            Some(key_name) => key_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("key_name malformated"));
+            }
+        };
+
+        let key = self
+            .valv
+            .lock()
+            .await
+            .get_key(tenant_name.clone(), key_name.clone())
+            .await;
 
         match key {
-            Some(key) => {
-                let primary = self.valv.lock().await.get_key_version(tenant_name, key_name, key.primary_version_id.parse().unwrap()).await;
+            Ok(Some(key)) => {
+                let primary = self
+                    .valv
+                    .lock()
+                    .await
+                    .get_key_version(tenant_name, key_name, key.primary_version_id)
+                    .await;
 
-                return Ok(tonic::Response::new(valv_key_to_google_key(key, primary.unwrap())));
+                match primary {
+                    Ok(Some(primary)) => {
+                        return Ok(tonic::Response::new(valv_key_to_google_key(key, primary)));
+                    }
+                    Ok(None) => {
+                        return Err(tonic::Status::not_found("primary key version not found"));
+                    }
+                    Err(e) => {
+                        println!("error: {}", e);
+                        return Err(tonic::Status::internal(e.to_string()));
+                    }
+                }
             }
-            None => {
+            Ok(None) => {
                 return Err(tonic::Status::not_found("key not found"));
             }
+            Err(e) => {
+                println!("error: {}", e);
+                return Err(tonic::Status::internal(e.to_string()));
+            }
         }
-
-        
     }
 
     async fn get_crypto_key_version(
@@ -127,24 +174,41 @@ impl KeyManagementService for GoogleKMS {
         request: tonic::Request<google::kms::CreateCryptoKeyRequest>,
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
         let request = request.into_inner();
-        
-        let tenant_name = request.parent.split('/').nth(5).unwrap().to_string();
+
+        let tenant_name = match request.parent.split('/').nth(5) {
+            Some(tenant_name) => tenant_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("tenant_name malformated"));
+            }
+        };
         let key_name = request.crypto_key_id;
 
         let valv = self.valv.lock().await;
-        let key = valv
-            .create_key(
-                tenant_name.clone(),
-                key_name.clone(),
-            )
-            .await;
+        let key = valv.create_key(tenant_name.clone(), key_name.clone()).await;
 
-        let primary = valv.get_key_version(tenant_name, key_name, key.primary_version_id.parse().unwrap()).await;
-        if primary.is_none() {
-            return Err(tonic::Status::not_found("primary key version not found"));
+        match key {
+            Ok(key) => {
+                let primary = valv
+                    .get_key_version(tenant_name, key_name, key.primary_version_id)
+                    .await;
+                match primary {
+                    Ok(Some(primary)) => {
+                        return Ok(tonic::Response::new(valv_key_to_google_key(key, primary)));
+                    }
+                    Ok(None) => {
+                        return Err(tonic::Status::not_found("primary key version not found"));
+                    }
+                    Err(e) => {
+                        println!("error: {}", e);
+                        return Err(tonic::Status::internal(e.to_string()));
+                    }
+                }
+            }
+            Err(e) => {
+                println!("error: {}", e);
+                return Err(tonic::Status::internal(e.to_string()));
+            }
         }
-
-        return Ok(tonic::Response::new(valv_key_to_google_key(key, primary.unwrap())));
     }
 
     async fn create_crypto_key_version(
@@ -174,40 +238,78 @@ impl KeyManagementService for GoogleKMS {
     ) -> Result<tonic::Response<google::kms::CryptoKey>, tonic::Status> {
         let request = request.into_inner();
 
-        if request.crypto_key.is_none() {
-            return Err(tonic::Status::invalid_argument("crypto_key is required"));
-        }
+        let crypto_key = match request.crypto_key {
+            Some(crypto_key) => crypto_key,
+            None => {
+                return Err(tonic::Status::invalid_argument("crypto_key is required"));
+            }
+        };
 
-        let crypto_key = request.crypto_key.unwrap();
-
-        let tenant_name = crypto_key.name.split('/').nth(5).unwrap().to_string();
-        let key_name = crypto_key.name.split('/').last().unwrap().to_string();
-
+        let tenant_name = match crypto_key.name.split('/').nth(5) {
+            Some(tenant_name) => tenant_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("tenant_name malformated"));
+            }
+        };
+        let key_name = match crypto_key.name.split('/').last() {
+            Some(key_name) => key_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("key_name malformated"));
+            }
+        };
         let valv = self.valv.lock().await;
         let key = valv.get_key(tenant_name.clone(), key_name.clone()).await;
 
-        let mut key = if key.is_none() {
-            return Err(tonic::Status::not_found("key not found"));
-        } else {
-            key.unwrap()
+        let mut key = match key {
+            Ok(key) => match key {
+                Some(key) => key,
+                None => {
+                    return Err(tonic::Status::not_found("key not found"));
+                }
+            },
+            Err(e) => {
+                println!("error: {}", e);
+                return Err(tonic::Status::internal(e.to_string()));
+            }
         };
 
-        let rotation_schedule: RotationSchedule = crypto_key.rotation_schedule.unwrap();
-        
-        let rotation_period = match rotation_schedule {
-            RotationSchedule::RotationPeriod(period) => period,
+        let rotation_schedule = match crypto_key.rotation_schedule {
+            Some(rotation_schedule) => rotation_schedule,
+            None => {
+                return Err(tonic::Status::invalid_argument(
+                    "rotation_schedule is required",
+                ));
+            }
         };
+
+        let RotationSchedule::RotationPeriod(rotation_period) = rotation_schedule;
 
         key.rotation_schedule = Some(rotation_period.clone());
 
-        let key = valv.update_key(tenant_name.clone(), key).await;
+        let key = match valv.update_key(tenant_name.clone(), key).await {
+            Ok(key) => key,
+            Err(e) => {
+                println!("error: {}", e);
+                return Err(tonic::Status::internal(e.to_string()));
+            }
+        };
 
-        let primary = valv.get_key_version(tenant_name, key_name, key.primary_version_id.parse().unwrap()).await;
-        if primary.is_none() {
-            return Err(tonic::Status::not_found("primary key version not found"));
+        let primary = valv
+            .get_key_version(tenant_name, key_name, key.primary_version_id)
+            .await;
+
+        match primary {
+            Ok(Some(primary)) => {
+                return Ok(tonic::Response::new(valv_key_to_google_key(key, primary)));
+            }
+            Ok(None) => {
+                return Err(tonic::Status::not_found("primary key version not found"));
+            }
+            Err(e) => {
+                println!("error: {}", e);
+                return Err(tonic::Status::internal(e.to_string()));
+            }
         }
-
-        return Ok(tonic::Response::new(valv_key_to_google_key(key, primary.unwrap())));
     }
 
     async fn update_crypto_key_version(
@@ -223,17 +325,39 @@ impl KeyManagementService for GoogleKMS {
     ) -> Result<tonic::Response<google::kms::EncryptResponse>, tonic::Status> {
         let request = request.into_inner();
 
-        let tenant_name = request.name.split('/').nth(5).unwrap().to_string();
-        let key_name = request.name.split('/').last().unwrap().to_string();
+        let tenant_name = match request.name.split('/').nth(5) {
+            Some(tenant_name) => tenant_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("tenant_name malformated"));
+            }
+        };
+        let key_name = match request.name.split('/').last() {
+            Some(key_name) => key_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("key_name malformated"));
+            }
+        };
 
-        let ciphertext = self.valv.lock().await.encrypt(tenant_name, key_name, request.plaintext).await;
+        let ciphertext = self
+            .valv
+            .lock()
+            .await
+            .encrypt(tenant_name, key_name, request.plaintext)
+            .await;
 
-        return Ok(tonic::Response::new(google::kms::EncryptResponse {
-            name: 0.to_string(),
-            ciphertext: ciphertext.clone(),
-            ciphertext_crc32c: Some(crc32c(&ciphertext) as i64),
-            ..Default::default()
-        }));
+        match ciphertext {
+            Ok(ciphertext) => {
+                return Ok(tonic::Response::new(google::kms::EncryptResponse {
+                    name: 0.to_string(),
+                    ciphertext: ciphertext.clone(),
+                    ciphertext_crc32c: Some(crc32c(&ciphertext) as i64),
+                    ..Default::default()
+                }));
+            }
+            Err(e) => {
+                return Err(tonic::Status::internal(e.to_string()));
+            }
+        }
     }
 
     async fn decrypt(
@@ -242,10 +366,25 @@ impl KeyManagementService for GoogleKMS {
     ) -> Result<tonic::Response<google::kms::DecryptResponse>, tonic::Status> {
         let request = request.into_inner();
 
-        let tenant_name = request.name.split('/').nth(5).unwrap().to_string();
-        let key_name = request.name.split('/').last().unwrap().to_string();
+        let tenant_name = match request.name.split('/').nth(5) {
+            Some(tenant_name) => tenant_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("tenant_name malformated"));
+            }
+        };
+        let key_name = match request.name.split('/').last() {
+            Some(key_name) => key_name.to_string(),
+            None => {
+                return Err(tonic::Status::invalid_argument("key_name malformated"));
+            }
+        };
 
-        let result = self.valv.lock().await.decrypt(tenant_name, key_name, request.ciphertext).await;
+        let result = self
+            .valv
+            .lock()
+            .await
+            .decrypt(tenant_name, key_name, request.ciphertext)
+            .await;
 
         match result {
             Ok(plaintext) => {
@@ -332,43 +471,56 @@ impl KeyManagementService for GoogleKMS {
     }
 }
 
-fn valv_key_to_google_key(key: internal::Key, primary: internal::KeyVersion) -> google::kms::CryptoKey {
-    let next_rotation_time = Some(prost_types::Timestamp {
-        seconds: primary.creation_time.clone().unwrap().seconds + key.rotation_schedule.as_ref().unwrap().seconds,
-        nanos: primary.creation_time.clone().unwrap().nanos + key.rotation_schedule.as_ref().unwrap().nanos,
-    });
-
-    google::kms::CryptoKey {
+fn valv_key_to_google_key(
+    key: internal::Key,
+    primary: internal::KeyVersion,
+) -> google::kms::CryptoKey {
+    let mut crypto_key = google::kms::CryptoKey {
         name: key.key_id,
         purpose: google::kms::crypto_key::CryptoKeyPurpose::EncryptDecrypt as i32,
         crypto_key_backend: "valv".to_string(),
-        rotation_schedule: key.rotation_schedule.map(|rotation_schedule| {
-            RotationSchedule::RotationPeriod(rotation_schedule)
-        }),
-        next_rotation_time: next_rotation_time,
+        rotation_schedule: key
+            .rotation_schedule
+            .as_ref()
+            .map(|rotation_schedule| RotationSchedule::RotationPeriod(rotation_schedule.clone())),
         primary: Some(google::kms::CryptoKeyVersion {
             name: primary.version.to_string(),
             state: google::kms::crypto_key_version::CryptoKeyVersionState::Enabled as i32,
-            create_time: Some(prost_types::Timestamp {
-                seconds: primary.creation_time.clone().unwrap().seconds,
-                nanos: primary.creation_time.unwrap().nanos,
-            }),
+
             ..Default::default()
         }),
         ..Default::default()
+    };
+    if let Some(creation_time) = primary.creation_time {
+        crypto_key.create_time = Some(prost_types::Timestamp {
+            seconds: creation_time.seconds,
+            nanos: creation_time.nanos,
+        });
+
+        if let Some(rotation_schedule) = key.rotation_schedule.as_ref() {
+            let next_rotation_time = Some(prost_types::Timestamp {
+                seconds: creation_time.seconds + rotation_schedule.seconds,
+                nanos: creation_time.nanos + rotation_schedule.nanos,
+            });
+
+            crypto_key.next_rotation_time = next_rotation_time;
+        }
     }
+
+    crypto_key
 }
 
 #[tokio::main]
 async fn main() {
-    let addr = "[::1]:50051".parse().unwrap();
+    #![allow(clippy::expect_used)]
+    let addr = "[::1]:50051".parse().expect("failed to parse address");
 
     let _guard = unsafe { foundationdb::boot() };
 
     let mut key = [0; 32];
-    boring::rand::rand_bytes(&mut key).unwrap();
+    boring::rand::rand_bytes(&mut key).expect("failed to generate random key");
 
-    let mut store = valv::Valv::new().await;
+    let mut store = valv::Valv::new().await.expect("failed to create valv");
 
     store.set_master_key(key);
     let api = GoogleKMS {
@@ -381,5 +533,5 @@ async fn main() {
         )
         .serve(addr)
         .await
-        .unwrap();
+        .expect("failed to start grpc server");
 }

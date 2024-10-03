@@ -1,4 +1,4 @@
-use errors::Result;
+use errors::{Result, ValvError};
 use gen::valv::internal;
 use prost::bytes::Buf;
 use secrecy::{ExposeSecret, Secret};
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use storage::{fdb::FoundationDB, interface::ValvStorage};
 
 pub mod api;
-mod errors;
+pub mod errors;
 pub mod gen;
 mod integration_tests;
 mod storage;
@@ -89,9 +89,16 @@ impl ValvAPI for Valv {
         let key = self
             .db
             .get_key_metadata(tenant.as_str(), name.as_str())
-            .await?;
+            .await;
 
-        Ok(Some(key))
+        match key {
+            Ok(key) => Ok(Some(key)),
+            Err(ValvError::KeyNotFound(_)) => Ok(None),
+            Err(e) => {
+                println!("Error getting key {name}: {e}");
+                return Err(ValvError::Internal(e.to_string()));
+            }
+        }
     }
 
     async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>> {
