@@ -40,6 +40,8 @@ pub struct KeyMaterial {
 
 #[async_trait::async_trait]
 pub trait ValvAPI: Send + Sync {
+    // TODO: Separate get_key into get_key_metadata and get_key_with_primary_version
+
     async fn create_key(&self, tenant: String, name: String) -> Result<internal::Key>;
     async fn get_key(&self, tenant: String, name: String) -> Result<Option<internal::Key>>;
     async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>>;
@@ -85,25 +87,62 @@ impl Valv {
 
 #[async_trait::async_trait]
 impl ValvAPI for Valv {
-    async fn get_key(&self, tenant: String, name: String) -> Result<Option<internal::Key>> {
-        let key = self
+    async fn get_key(&self, tenant: String, key_name: String) -> Result<Option<internal::Key>> {
+        let trx_result = self
             .db
-            .get_key_metadata(tenant.as_str(), name.as_str())
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+                let key_name = key_name.clone();
+
+                async move {
+                    let key = self
+                        .db
+                        .get_key_metadata(&trx, tenant.as_str(), key_name.as_str())
+                        .await?;
+
+                    Ok(key)
+                }
+            })
             .await;
 
-        match key {
-            Ok(key) => Ok(Some(key)),
-            Err(ValvError::KeyNotFound(_)) => Ok(None),
+        match trx_result {
+            Ok(key) => Ok(key),
             Err(e) => {
-                println!("Error getting key {name}: {e}");
-                return Err(ValvError::Internal(e.to_string()));
+                println!("Error getting key {}: {e}", key_name);
+                Err(ValvError::Storage(storage::errors::StorageError::Binding(
+                    e,
+                )))
             }
         }
     }
 
     async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>> {
-        let keys = self.db.list_key_metadata(tenant.as_str()).await?;
-        Ok(Some(keys))
+        let trx_result = self
+            .db
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+
+                async move {
+                    let keys = self.db.list_key_metadata(&trx, tenant.as_str()).await?;
+
+                    Ok(Some(keys))
+                }
+            })
+            .await;
+
+        match trx_result {
+            Ok(keys) => Ok(keys),
+            Err(e) => {
+                println!("Error listing keys for tenant {}: {e}", tenant);
+                Err(ValvError::Storage(storage::errors::StorageError::Binding(
+                    e,
+                )))
+            }
+        }
     }
 
     async fn create_key(&self, tenant: String, name: String) -> Result<internal::Key> {
@@ -143,10 +182,6 @@ impl ValvAPI for Valv {
             }),
         };
 
-        self.db
-            .update_key_metadata(tenant.as_str(), key.clone())
-            .await?;
-
         let key_version = internal::KeyVersion {
             key_id: name.clone(),
             key_material: encrypted_result.to_vec().into(),
@@ -159,19 +194,66 @@ impl ValvAPI for Valv {
             ..Default::default()
         };
 
-        self.db
-            .append_key_version(tenant.as_str(), key.clone(), key_version)
-            .await?;
+        let trx_result = self
+            .db
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+                let key = key.clone();
+                let key_version = key_version.clone();
 
-        Ok(key)
+                async move {
+                    self.db
+                        .update_key_metadata(&trx, tenant.as_str(), key.clone())
+                        .await?;
+
+                    self.db
+                        .append_key_version(&trx, tenant.as_str(), key.clone(), key_version.clone())
+                        .await?;
+
+                    Ok(())
+                }
+            })
+            .await;
+
+        match trx_result {
+            Ok(_) => Ok(key),
+            Err(e) => {
+                println!("Error creating key {name}: {e}");
+                Err(ValvError::Internal(e.to_string()))
+            }
+        }
     }
 
     async fn update_key(&self, tenant: String, key: internal::Key) -> Result<internal::Key> {
-        self.db
-            .update_key_metadata(tenant.as_str(), key.clone())
-            .await?;
+        let trx_result = self
+            .db
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+                let key = key.clone();
 
-        Ok(key)
+                async move {
+                    self.db
+                        .update_key_metadata(&trx, tenant.as_str(), key.clone())
+                        .await?;
+
+                    Ok(())
+                }
+            })
+            .await;
+
+        match trx_result {
+            Ok(_) => Ok(key),
+            Err(e) => {
+                println!("Error updating key {}: {e}", key.key_id);
+                Err(ValvError::Storage(storage::errors::StorageError::Binding(
+                    e,
+                )))
+            }
+        }
     }
 
     async fn get_key_version(
@@ -180,12 +262,33 @@ impl ValvAPI for Valv {
         key_name: String,
         version_id: u32,
     ) -> Result<Option<internal::KeyVersion>> {
-        let key_version = self
+        let trx_result = self
             .db
-            .get_key_version(tenant.as_str(), &key_name, version_id)
-            .await?;
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+                let key_name = key_name.clone();
 
-        Ok(Some(key_version))
+                async move {
+                    let key_version = self
+                        .db
+                        .get_key_version(&trx, tenant.as_str(), &key_name, version_id)
+                        .await?;
+                    Ok(key_version)
+                }
+            })
+            .await;
+
+        match trx_result {
+            Ok(key_version) => Ok(key_version),
+            Err(e) => {
+                println!("Error getting key version {}: {e}", key_name);
+                Err(ValvError::Storage(storage::errors::StorageError::Binding(
+                    e,
+                )))
+            }
+        }
     }
 
     async fn encrypt(
@@ -194,54 +297,102 @@ impl ValvAPI for Valv {
         key_name: String,
         plaintext: Vec<u8>,
     ) -> Result<Vec<u8>> {
-        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await?;
-
-        let key_version = self
+        let trx_result = self
             .db
-            .get_key_version(tenant.as_str(), &key.key_id, key.primary_version_id)
-            .await?;
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+                let key_name = key_name.clone();
+                let plaintext = plaintext.clone();
 
-        let (iv, remainder) = key_version.key_material.split_at(12);
-        let (cipher, tag) = remainder.split_at(remainder.len() - 16);
+                async move {
+                    let key = self
+                        .db
+                        .get_key_metadata(&trx, tenant.as_str(), &key_name)
+                        .await?;
 
-        let decrypted_key_material = boring::symm::decrypt_aead(
-            boring::symm::Cipher::aes_256_gcm(),
-            self.master_key.expose_secret(),
-            Some(iv),
-            &[],
-            cipher,
-            tag,
-        )?;
+                    let key = match key {
+                        Some(key) => key,
+                        None => {
+                            return Err(ValvError::KeyNotFound(key_name).into());
+                        }
+                    };
 
-        let mut iv = [0; 12];
-        boring::rand::rand_bytes(&mut iv)?;
+                    let key_version = self
+                        .db
+                        .get_key_version(&trx, tenant.as_str(), &key.key_id, key.primary_version_id)
+                        .await?;
 
-        let mut tag = [0; 16];
+                    let key_version = match key_version {
+                        Some(key_version) => key_version,
+                        None => {
+                            return Err(ValvError::KeyNotFound(key_name).into());
+                        }
+                    };
 
-        let encrypted_key = boring::symm::encrypt_aead(
-            boring::symm::Cipher::aes_256_gcm(),
-            &decrypted_key_material,
-            Some(&iv),
-            &[],
-            &plaintext,
-            &mut tag,
-        )?;
+                    let (iv, remainder) = key_version.key_material.split_at(12);
+                    let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
-        let mut encrypted_result = Vec::with_capacity(
-            4 + // Key version (u32)
-            iv.len() +
-            encrypted_key.len() +
-            tag.len(),
-        );
+                    let decrypted_key_material = boring::symm::decrypt_aead(
+                        boring::symm::Cipher::aes_256_gcm(),
+                        self.master_key.expose_secret(),
+                        Some(iv),
+                        &[],
+                        cipher,
+                        tag,
+                    );
 
-        // Add version, IV and encrypted key to result
-        encrypted_result.extend_from_slice(&(key_version.version).to_be_bytes());
+                    let decrypted_key_material = match decrypted_key_material {
+                        Ok(decrypted_key_material) => decrypted_key_material,
+                        Err(e) => {
+                            return Err(ValvError::Internal(e.to_string()).into());
+                        }
+                    };
 
-        encrypted_result.extend_from_slice(&iv);
-        encrypted_result.extend_from_slice(&encrypted_key);
-        encrypted_result.extend_from_slice(&tag);
+                    let mut iv = [0; 12];
+                    boring::rand::rand_bytes(&mut iv).map_err(ValvError::BoringSSL)?;
 
-        Ok(encrypted_result)
+                    let mut tag = [0; 16];
+
+                    let encrypted_key = boring::symm::encrypt_aead(
+                        boring::symm::Cipher::aes_256_gcm(),
+                        &decrypted_key_material,
+                        Some(&iv),
+                        &[],
+                        &plaintext,
+                        &mut tag,
+                    )
+                    .map_err(ValvError::BoringSSL)?;
+
+                    let mut encrypted_result = Vec::with_capacity(
+                        4 + // Key version (u32)
+                        iv.len() +
+                        encrypted_key.len() +
+                        tag.len(),
+                    );
+
+                    // Add version, IV and encrypted key to result
+                    encrypted_result.extend_from_slice(&(key_version.version).to_be_bytes());
+
+                    encrypted_result.extend_from_slice(&iv);
+                    encrypted_result.extend_from_slice(&encrypted_key);
+                    encrypted_result.extend_from_slice(&tag);
+
+                    Ok(encrypted_result)
+                }
+            })
+            .await;
+
+        match trx_result {
+            Ok(encrypted_result) => Ok(encrypted_result),
+            Err(e) => {
+                println!("Error encrypting key {}: {e}", key_name);
+                Err(ValvError::Storage(storage::errors::StorageError::Binding(
+                    e,
+                )))
+            }
+        }
     }
 
     async fn decrypt(
@@ -250,38 +401,81 @@ impl ValvAPI for Valv {
         key_name: String,
         ciphertext: Vec<u8>,
     ) -> Result<Vec<u8>> {
-        let (key_version_id, remainder) = ciphertext.split_at(4);
-        let (iv, remainder) = remainder.split_at(12);
-        let (cipher, tag) = remainder.split_at(remainder.len() - 16);
-
-        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await?;
-        let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
-        let key_version = self
+        let trx_result = self
             .db
-            .get_key_version(tenant.as_str(), &key.key_id, key_version_id)
-            .await?;
+            .database
+            .run(|trx, _| {
+                let trx = trx;
+                let tenant = tenant.clone();
+                let key_name = key_name.clone();
+                let ciphertext = ciphertext.clone();
 
-        let (kv_iv, kv_remainder) = key_version.key_material.split_at(12);
-        let (kv_cipher, kv_tag) = kv_remainder.split_at(kv_remainder.len() - 16);
+                async move {
+                    let (key_version_id, remainder) = ciphertext.split_at(4);
+                    let (iv, remainder) = remainder.split_at(12);
+                    let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
-        let decrypted_key_material = boring::symm::decrypt_aead(
-            boring::symm::Cipher::aes_256_gcm(),
-            self.master_key.expose_secret(),
-            Some(kv_iv),
-            &[],
-            kv_cipher,
-            kv_tag,
-        )?;
+                    let key = self
+                        .db
+                        .get_key_metadata(&trx, tenant.as_str(), &key_name)
+                        .await?;
 
-        let plaintext = boring::symm::decrypt_aead(
-            boring::symm::Cipher::aes_256_gcm(),
-            &decrypted_key_material,
-            Some(iv),
-            &[],
-            cipher,
-            tag,
-        )?;
+                    let key = match key {
+                        Some(key) => key,
+                        None => {
+                            return Err(ValvError::KeyNotFound(key_name).into());
+                        }
+                    };
 
-        Ok(plaintext)
+                    let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
+                    let key_version = self
+                        .db
+                        .get_key_version(&trx, tenant.as_str(), &key.key_id, key_version_id)
+                        .await?;
+
+                    let key_version = match key_version {
+                        Some(key_version) => key_version,
+                        None => {
+                            return Err(ValvError::KeyNotFound(key_name).into());
+                        }
+                    };
+
+                    let (kv_iv, kv_remainder) = key_version.key_material.split_at(12);
+                    let (kv_cipher, kv_tag) = kv_remainder.split_at(kv_remainder.len() - 16);
+
+                    let decrypted_key_material = boring::symm::decrypt_aead(
+                        boring::symm::Cipher::aes_256_gcm(),
+                        self.master_key.expose_secret(),
+                        Some(kv_iv),
+                        &[],
+                        kv_cipher,
+                        kv_tag,
+                    )
+                    .map_err(ValvError::BoringSSL)?;
+
+                    let plaintext = boring::symm::decrypt_aead(
+                        boring::symm::Cipher::aes_256_gcm(),
+                        &decrypted_key_material,
+                        Some(iv),
+                        &[],
+                        cipher,
+                        tag,
+                    )
+                    .map_err(ValvError::BoringSSL)?;
+
+                    Ok(plaintext)
+                }
+            })
+            .await;
+
+        match trx_result {
+            Ok(plaintext) => Ok(plaintext),
+            Err(e) => {
+                println!("Error decrypting key {}: {e}", key_name);
+                Err(ValvError::Storage(storage::errors::StorageError::Binding(
+                    e,
+                )))
+            }
+        }
     }
 }
