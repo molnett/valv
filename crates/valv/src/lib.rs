@@ -1,4 +1,4 @@
-use boring::error::ErrorStack;
+use errors::{Result, ValvError};
 use gen::valv::internal;
 use prost::bytes::Buf;
 use secrecy::{ExposeSecret, Secret};
@@ -6,13 +6,15 @@ use serde::{Deserialize, Serialize};
 use storage::{fdb::FoundationDB, interface::ValvStorage};
 
 pub mod api;
+pub mod errors;
 pub mod gen;
+mod integration_tests;
 mod storage;
-mod tests;
 
 pub mod valv {
     pub mod proto {
         pub mod v1 {
+            #![allow(clippy::unwrap_used)]
             include!("gen/valv.v1.rs");
         }
     }
@@ -38,25 +40,29 @@ pub struct KeyMaterial {
 
 #[async_trait::async_trait]
 pub trait ValvAPI: Send + Sync {
-    async fn create_key(&self, tenant: String, name: String) -> internal::Key;
-    async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key>;
-    async fn list_keys(&self, tenant: String) -> Option<Vec<internal::Key>>;
-    async fn update_key(&self, tenant: String, key: internal::Key) -> internal::Key;
+    async fn create_key(&self, tenant: String, name: String) -> Result<internal::Key>;
+    async fn get_key(&self, tenant: String, name: String) -> Result<Option<internal::Key>>;
+    async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>>;
+    async fn update_key(&self, tenant: String, key: internal::Key) -> Result<internal::Key>;
 
     async fn get_key_version(
         &self,
         tenant: String,
         key_name: String,
         version_id: u32,
-    ) -> Option<internal::KeyVersion>;
-
-    async fn encrypt(&self, tenant: String, key_name: String, plaintext: Vec<u8>) -> Vec<u8>;
+    ) -> Result<Option<internal::KeyVersion>>;
+    async fn encrypt(
+        &self,
+        tenant: String,
+        key_name: String,
+        plaintext: Vec<u8>,
+    ) -> Result<Vec<u8>>;
     async fn decrypt(
         &self,
         tenant: String,
         key_name: String,
         ciphertext: Vec<u8>,
-    ) -> Result<Vec<u8>, ErrorStack>;
+    ) -> Result<Vec<u8>>;
 }
 
 pub struct Valv {
@@ -65,11 +71,11 @@ pub struct Valv {
 }
 
 impl Valv {
-    pub async fn new() -> Valv {
-        Valv {
-            db: FoundationDB::new("local").await.unwrap(),
+    pub async fn new() -> Result<Valv> {
+        Ok(Valv {
+            db: FoundationDB::new("local").await?,
             master_key: [0; 32].into(),
-        }
+        })
     }
 
     pub fn set_master_key(&mut self, key: [u8; 32]) {
@@ -79,27 +85,33 @@ impl Valv {
 
 #[async_trait::async_trait]
 impl ValvAPI for Valv {
-    async fn get_key(&self, tenant: String, name: String) -> Option<internal::Key> {
+    async fn get_key(&self, tenant: String, name: String) -> Result<Option<internal::Key>> {
         let key = self
             .db
             .get_key_metadata(tenant.as_str(), name.as_str())
-            .await
-            .unwrap();
+            .await;
 
-        Some(key)
+        match key {
+            Ok(key) => Ok(Some(key)),
+            Err(ValvError::KeyNotFound(_)) => Ok(None),
+            Err(e) => {
+                println!("Error getting key {name}: {e}");
+                return Err(ValvError::Internal(e.to_string()));
+            }
+        }
     }
 
-    async fn list_keys(&self, tenant: String) -> Option<Vec<internal::Key>> {
-        let keys = self.db.list_key_metadata(tenant.as_str()).await.unwrap();
-        Some(keys)
+    async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>> {
+        let keys = self.db.list_key_metadata(tenant.as_str()).await?;
+        Ok(Some(keys))
     }
 
-    async fn create_key(&self, tenant: String, name: String) -> internal::Key {
+    async fn create_key(&self, tenant: String, name: String) -> Result<internal::Key> {
         let mut iv = [0; 12];
         let mut key = [0; 32];
         let mut tag = [0; 16];
-        boring::rand::rand_bytes(&mut iv).unwrap();
-        boring::rand::rand_bytes(&mut key).unwrap();
+        boring::rand::rand_bytes(&mut iv)?;
+        boring::rand::rand_bytes(&mut key)?;
 
         let encrypted_key = boring::symm::encrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
@@ -108,8 +120,7 @@ impl ValvAPI for Valv {
             &[],
             &key,
             &mut tag,
-        )
-        .unwrap();
+        )?;
 
         let mut encrypted_result = Vec::with_capacity(iv.len() + encrypted_key.len() + tag.len());
 
@@ -120,7 +131,7 @@ impl ValvAPI for Valv {
 
         let key = internal::Key {
             key_id: name.clone(),
-            primary_version_id: 1.to_string(),
+            primary_version_id: 1,
             purpose: "ENCRYPT_DECRYPT".to_string(),
             creation_time: Some(prost_types::Timestamp {
                 seconds: chrono::Utc::now().timestamp(),
@@ -134,8 +145,7 @@ impl ValvAPI for Valv {
 
         self.db
             .update_key_metadata(tenant.as_str(), key.clone())
-            .await
-            .unwrap();
+            .await?;
 
         let key_version = internal::KeyVersion {
             key_id: name.clone(),
@@ -151,19 +161,17 @@ impl ValvAPI for Valv {
 
         self.db
             .append_key_version(tenant.as_str(), key.clone(), key_version)
-            .await
-            .unwrap();
+            .await?;
 
-        key
+        Ok(key)
     }
 
-    async fn update_key(&self, tenant: String, key: internal::Key) -> internal::Key {
+    async fn update_key(&self, tenant: String, key: internal::Key) -> Result<internal::Key> {
         self.db
             .update_key_metadata(tenant.as_str(), key.clone())
-            .await
-            .unwrap();
+            .await?;
 
-        key
+        Ok(key)
     }
 
     async fn get_key_version(
@@ -171,30 +179,27 @@ impl ValvAPI for Valv {
         tenant: String,
         key_name: String,
         version_id: u32,
-    ) -> Option<internal::KeyVersion> {
+    ) -> Result<Option<internal::KeyVersion>> {
         let key_version = self
             .db
             .get_key_version(tenant.as_str(), &key_name, version_id)
-            .await
-            .unwrap();
-        Some(key_version)
+            .await?;
+
+        Ok(Some(key_version))
     }
 
-    async fn encrypt(&self, tenant: String, key_name: String, plaintext: Vec<u8>) -> Vec<u8> {
-        let key = self
-            .db
-            .get_key_metadata(tenant.as_str(), &key_name)
-            .await
-            .unwrap();
+    async fn encrypt(
+        &self,
+        tenant: String,
+        key_name: String,
+        plaintext: Vec<u8>,
+    ) -> Result<Vec<u8>> {
+        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await?;
+
         let key_version = self
             .db
-            .get_key_version(
-                tenant.as_str(),
-                &key.key_id,
-                key.primary_version_id.parse().unwrap(),
-            )
-            .await
-            .unwrap();
+            .get_key_version(tenant.as_str(), &key.key_id, key.primary_version_id)
+            .await?;
 
         let (iv, remainder) = key_version.key_material.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
@@ -206,11 +211,10 @@ impl ValvAPI for Valv {
             &[],
             cipher,
             tag,
-        )
-        .expect("Failed to decrypt key material");
+        )?;
 
         let mut iv = [0; 12];
-        boring::rand::rand_bytes(&mut iv).unwrap();
+        boring::rand::rand_bytes(&mut iv)?;
 
         let mut tag = [0; 16];
 
@@ -221,8 +225,7 @@ impl ValvAPI for Valv {
             &[],
             &plaintext,
             &mut tag,
-        )
-        .unwrap();
+        )?;
 
         let mut encrypted_result = Vec::with_capacity(
             4 + // Key version (u32)
@@ -238,7 +241,7 @@ impl ValvAPI for Valv {
         encrypted_result.extend_from_slice(&encrypted_key);
         encrypted_result.extend_from_slice(&tag);
 
-        encrypted_result
+        Ok(encrypted_result)
     }
 
     async fn decrypt(
@@ -246,22 +249,17 @@ impl ValvAPI for Valv {
         tenant: String,
         key_name: String,
         ciphertext: Vec<u8>,
-    ) -> Result<Vec<u8>, ErrorStack> {
+    ) -> Result<Vec<u8>> {
         let (key_version_id, remainder) = ciphertext.split_at(4);
         let (iv, remainder) = remainder.split_at(12);
         let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
-        let key = self
-            .db
-            .get_key_metadata(tenant.as_str(), &key_name)
-            .await
-            .unwrap();
+        let key = self.db.get_key_metadata(tenant.as_str(), &key_name).await?;
         let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
         let key_version = self
             .db
             .get_key_version(tenant.as_str(), &key.key_id, key_version_id)
-            .await
-            .unwrap();
+            .await?;
 
         let (kv_iv, kv_remainder) = key_version.key_material.split_at(12);
         let (kv_cipher, kv_tag) = kv_remainder.split_at(kv_remainder.len() - 16);
@@ -273,16 +271,17 @@ impl ValvAPI for Valv {
             &[],
             kv_cipher,
             kv_tag,
-        )
-        .expect("Failed to decrypt key material");
+        )?;
 
-        boring::symm::decrypt_aead(
+        let plaintext = boring::symm::decrypt_aead(
             boring::symm::Cipher::aes_256_gcm(),
             &decrypted_key_material,
             Some(iv),
             &[],
             cipher,
             tag,
-        )
+        )?;
+
+        Ok(plaintext)
     }
 }

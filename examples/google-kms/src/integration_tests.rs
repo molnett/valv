@@ -1,3 +1,4 @@
+#[allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 #[cfg(test)]
 mod tests {
     use crate::google::kms::{
@@ -14,8 +15,8 @@ mod tests {
         ListKeyRingsRequest, ListKeyRingsResponse, ProtectionLevel,
         UpdateCryptoKeyPrimaryVersionRequest, UpdateCryptoKeyRequest,
     };
-    use std::time::Duration;
     use crc32c::crc32c;
+    use std::time::Duration;
     use tonic::{Request, Response, Status};
     use uuid::Uuid;
 
@@ -406,11 +407,16 @@ mod tests {
                         RotationSchedule::RotationPeriod(period) => {
                             let rotation_duration = Duration::from_secs(period.seconds as u64)
                                 + Duration::from_nanos(period.nanos as u64);
-                            let last_rotated_time = primary.create_time.as_ref().unwrap();
+                            let last_rotated_time = primary.create_time.as_ref();
                             let now = std::time::SystemTime::now();
-                            let duration_since_creation = now.duration_since(
-                                std::time::UNIX_EPOCH + Duration::from_secs(last_rotated_time.seconds as u64)
-                            ).expect("Time went backwards");
+                            let duration_since_creation = now
+                                .duration_since(
+                                    std::time::UNIX_EPOCH
+                                        + Duration::from_secs(
+                                            last_rotated_time.unwrap().seconds as u64,
+                                        ),
+                                )
+                                .expect("Time went backwards");
 
                             assert!(
                                 duration_since_creation <= rotation_duration,
@@ -421,10 +427,10 @@ mod tests {
                 } else {
                     panic!("Rotation schedule is not set");
                 }
-            },
+            }
             None => {}
         }
-        
+
         Ok(())
     }
 
@@ -440,7 +446,10 @@ mod tests {
             .encrypt(key_ring_id, crypto_key_id, plaintext)
             .await?;
         assert!(!encrypt_response.get_ref().ciphertext.is_empty());
-        assert_eq!(encrypt_response.get_ref().ciphertext_crc32c, Some(crc32c(&encrypt_response.get_ref().ciphertext) as i64));
+        assert_eq!(
+            encrypt_response.get_ref().ciphertext_crc32c,
+            Some(crc32c(&encrypt_response.get_ref().ciphertext) as i64)
+        );
 
         // Decrypt
         let decrypt_response = client
@@ -553,13 +562,12 @@ mod tests {
             .find(|v| {
                 v.state == CryptoKeyVersionState::Enabled as i32
                     && v.name != create_response.get_ref().primary.as_ref().unwrap().name
-            })
-            .unwrap();
+            });
         let destroy_response = client
             .destroy_crypto_key_version(
                 key_ring_id,
                 &crypto_key_id,
-                version_to_destroy.name.split('/').last().unwrap(),
+                version_to_destroy.unwrap().name.split('/').last().unwrap(),
             )
             .await?;
         assert_eq!(

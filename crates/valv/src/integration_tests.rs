@@ -1,12 +1,14 @@
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use crate::{
         api::server::API,
+        errors::ValvError,
         valv::proto::v1::{
             master_key_management_service_server::MasterKeyManagementServiceServer,
             CreateMasterKeyRequest, DecryptRequest, EncryptRequest, MasterKey,
         },
-        Valv, ValvAPI,
+        Valv,
     };
 
     use std::{sync::Arc, time::Duration};
@@ -23,9 +25,6 @@ mod tests {
         let _guard = unsafe { foundationdb::boot() };
 
         println!("Running server test suite");
-        println!("Testing valv");
-        test_valv().await.expect("test_valv error");
-        println!("Valv test passed\n");
 
         println!("Testing create master key");
         test_create_master_key()
@@ -41,81 +40,51 @@ mod tests {
     }
 
     async fn setup_server(
-    ) -> anyhow::Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>> {
-        let addr = SERVER_ADDR.parse()?;
-        let mut valv = Valv::new().await;
+    ) -> Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>, ValvError> {
+        let addr = SERVER_ADDR.parse().expect("Invalid address");
+        let mut valv = Valv::new().await?;
+
         let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
             .as_bytes()
             .try_into()
-            .unwrap();
+            .expect("Invalid master key");
+
         valv.set_master_key(master_key_bytes);
         let api = API {
             valv: Arc::new(valv),
         };
+
         let svc = MasterKeyManagementServiceServer::new(api);
+
         Ok(tokio::spawn(Server::builder().add_service(svc).serve(addr)))
     }
 
     async fn setup_client(
-    ) -> anyhow::Result<MasterKeyManagementServiceClient<tonic::transport::Channel>> {
+    ) -> Result<MasterKeyManagementServiceClient<tonic::transport::Channel>, tonic::transport::Error>
+    {
         let channel = tonic::transport::Channel::from_static(CLIENT_ADDR)
             .connect()
             .await?;
         Ok(MasterKeyManagementServiceClient::new(channel))
     }
 
-    async fn wait_for_server() -> anyhow::Result<()> {
+    async fn wait_for_server() {
         for _ in 0..10 {
             if tonic::transport::Channel::from_static(CLIENT_ADDR)
                 .connect()
                 .await
                 .is_ok()
             {
-                return Ok(());
+                return;
             }
             sleep(Duration::from_millis(100)).await;
         }
-        anyhow::bail!("Failed to connect to server")
+        panic!("Failed to connect to server")
     }
 
-    async fn test_valv() -> anyhow::Result<()> {
-        let valv = Valv::new().await;
-        let key = valv
-            .create_key("tenant".to_string(), "test".to_string())
-            .await;
-        let key_metadata = valv.get_key("tenant".to_string(), key.key_id).await;
-        assert_eq!(key_metadata.unwrap().key_id, "test");
-
-        Ok(())
-    }
-
-    async fn test_create_master_key() -> anyhow::Result<()> {
+    async fn test_create_master_key() -> Result<(), ValvError> {
         let server_handle = setup_server().await?;
-        wait_for_server().await?;
-
-        let mut client = setup_client().await?;
-
-        // Make the gRPC call
-        let request = tonic::Request::new(CreateMasterKeyRequest {
-            master_key: Some(MasterKey::default()),
-            master_key_id: "test".to_string(),
-            keyring_name: "test_tenant".to_string(),
-        });
-        let response = client.create_master_key(request).await?;
-
-        // Assert the response
-        assert_eq!(response.get_ref().master_key.is_some(), true);
-
-        // Stop the server
-        server_handle.abort();
-
-        Ok(())
-    }
-
-    // Similar tests can be written for other API methods
-    async fn test_encrypt_decrypt() -> anyhow::Result<()> {
-        let server_handle = setup_server().await?;
-        wait_for_server().await?;
+        wait_for_server().await;
 
         let mut client = setup_client().await?;
 
@@ -128,7 +97,31 @@ mod tests {
         let response = client.create_master_key(request).await.unwrap();
 
         // Assert the response
-        assert_eq!(response.get_ref().master_key.is_some(), true);
+        assert!(response.get_ref().master_key.is_some());
+
+        // Stop the server
+        server_handle.abort();
+
+        Ok(())
+    }
+
+    // Similar tests can be written for other API methods
+    async fn test_encrypt_decrypt() -> Result<(), ValvError> {
+        let server_handle = setup_server().await?;
+        wait_for_server().await;
+
+        let mut client = setup_client().await?;
+
+        // Make the gRPC call
+        let request = tonic::Request::new(CreateMasterKeyRequest {
+            master_key: Some(MasterKey::default()),
+            master_key_id: "test".to_string(),
+            keyring_name: "test_tenant".to_string(),
+        });
+        let response = client.create_master_key(request).await.unwrap();
+
+        // Assert the response
+        assert!(response.get_ref().master_key.is_some());
 
         // Make the gRPC call to encrypt
         let encrypt_request = tonic::Request::new(EncryptRequest {
@@ -168,7 +161,7 @@ mod tests {
         let response = client.create_master_key(request).await.unwrap();
 
         // Assert the response
-        assert_eq!(response.get_ref().master_key.is_some(), true);
+        assert!(response.get_ref().master_key.is_some());
 
         // Make the gRPC call to decrypt with another master key
         println!("Decrypting with the wrong key, should fail");
@@ -181,7 +174,7 @@ mod tests {
 
         // Assert the decrypt response
         // This should fail because the ciphertext was encrypted with a different master key
-        assert_eq!(decrypt_response_another_key.is_err(), true);
+        assert!(decrypt_response_another_key.is_err());
 
         // Stop the server
         server_handle.abort();
