@@ -21,8 +21,8 @@ pub mod valv {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
-pub struct CryptoKey {
-    pub name: String,
+pub struct CryptoKey<'a> {
+    pub name: &'a str,
     pub encrypted_value: Vec<u8>,
 }
 
@@ -32,8 +32,8 @@ pub struct CryptoKeyVersion {
     pub wrapped_key: Vec<u8>,
 }
 
-pub struct KeyMaterial {
-    pub name: String,
+pub struct KeyMaterial<'a> {
+    pub name: &'a str,
     pub decrypted_key: [u8; 32],
     pub iv: [u8; 12],
 }
@@ -42,27 +42,27 @@ pub struct KeyMaterial {
 pub trait ValvAPI: Send + Sync {
     // TODO: Separate get_key into get_key_metadata and get_key_with_primary_version
 
-    async fn create_key(&self, tenant: String, name: String) -> Result<internal::Key>;
-    async fn get_key(&self, tenant: String, name: String) -> Result<Option<internal::Key>>;
-    async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>>;
-    async fn update_key(&self, tenant: String, key: internal::Key) -> Result<internal::Key>;
+    async fn create_key(&self, tenant: &str, name: &str) -> Result<internal::Key>;
+    async fn get_key(&self, tenant: &str, name: &str) -> Result<Option<internal::Key>>;
+    async fn list_keys(&self, tenant: &str) -> Result<Option<Vec<internal::Key>>>;
+    async fn update_key(&self, tenant: &str, key: internal::Key) -> Result<internal::Key>;
 
     async fn get_key_version(
         &self,
-        tenant: String,
-        key_name: String,
+        tenant: &str,
+        key_name: &str,
         version_id: u32,
     ) -> Result<Option<internal::KeyVersion>>;
     async fn encrypt(
         &self,
-        tenant: String,
-        key_name: String,
+        tenant: &str,
+        key_name: &str,
         plaintext: Vec<u8>,
     ) -> Result<Vec<u8>>;
     async fn decrypt(
         &self,
-        tenant: String,
-        key_name: String,
+        tenant: &str,
+        key_name: &str,
         ciphertext: Vec<u8>,
     ) -> Result<Vec<u8>>;
 }
@@ -87,19 +87,16 @@ impl Valv {
 
 #[async_trait::async_trait]
 impl ValvAPI for Valv {
-    async fn get_key(&self, tenant: String, key_name: String) -> Result<Option<internal::Key>> {
+    async fn get_key(&self, tenant: &str, key_name: &str) -> Result<Option<internal::Key>> {
         let trx_result = self
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-                let key_name = key_name.clone();
-
-                async move {
+                async {
+                    let trx = trx;
                     let key = self
                         .db
-                        .get_key_metadata(&trx, tenant.as_str(), key_name.as_str())
+                        .get_key_metadata(&trx, tenant, key_name)
                         .await?;
 
                     Ok(key)
@@ -118,7 +115,7 @@ impl ValvAPI for Valv {
         }
     }
 
-    async fn list_keys(&self, tenant: String) -> Result<Option<Vec<internal::Key>>> {
+    async fn list_keys(&self, tenant: &str) -> Result<Option<Vec<internal::Key>>> {
         let trx_result = self
             .db
             .database
@@ -126,8 +123,9 @@ impl ValvAPI for Valv {
                 let trx = trx;
                 let tenant = tenant.clone();
 
-                async move {
-                    let keys = self.db.list_key_metadata(&trx, tenant.as_str()).await?;
+                async {
+                    let trx = trx;
+                    let keys = self.db.list_key_metadata(&trx, tenant).await?;
 
                     Ok(Some(keys))
                 }
@@ -145,7 +143,7 @@ impl ValvAPI for Valv {
         }
     }
 
-    async fn create_key(&self, tenant: String, name: String) -> Result<internal::Key> {
+    async fn create_key(&self, tenant: &str, name: &str) -> Result<internal::Key> {
         let mut iv = [0; 12];
         let mut key = [0; 32];
         let mut tag = [0; 16];
@@ -169,7 +167,7 @@ impl ValvAPI for Valv {
         encrypted_result.extend_from_slice(&tag);
 
         let key = internal::Key {
-            key_id: name.clone(),
+            key_id: name.to_string(),
             primary_version_id: 1,
             purpose: "ENCRYPT_DECRYPT".to_string(),
             creation_time: Some(prost_types::Timestamp {
@@ -183,7 +181,7 @@ impl ValvAPI for Valv {
         };
 
         let key_version = internal::KeyVersion {
-            key_id: name.clone(),
+            key_id: name.to_string(),
             key_material: encrypted_result.to_vec().into(),
             state: internal::KeyVersionState::Enabled as i32,
             version: 1,
@@ -198,18 +196,14 @@ impl ValvAPI for Valv {
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-                let key = key.clone();
-                let key_version = key_version.clone();
-
-                async move {
+                async {
+                    let trx = trx;
                     self.db
-                        .update_key_metadata(&trx, tenant.as_str(), key.clone())
+                        .update_key_metadata(&trx, tenant, &key)
                         .await?;
 
                     self.db
-                        .append_key_version(&trx, tenant.as_str(), key.clone(), key_version.clone())
+                        .append_key_version(&trx, tenant, &key, &key_version)
                         .await?;
 
                     Ok(())
@@ -226,18 +220,15 @@ impl ValvAPI for Valv {
         }
     }
 
-    async fn update_key(&self, tenant: String, key: internal::Key) -> Result<internal::Key> {
+    async fn update_key(&self, tenant: &str, key: internal::Key) -> Result<internal::Key> {
         let trx_result = self
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-                let key = key.clone();
-
-                async move {
+                async {
+                    let trx = trx;
                     self.db
-                        .update_key_metadata(&trx, tenant.as_str(), key.clone())
+                        .update_key_metadata(&trx, tenant, &key)
                         .await?;
 
                     Ok(())
@@ -258,22 +249,19 @@ impl ValvAPI for Valv {
 
     async fn get_key_version(
         &self,
-        tenant: String,
-        key_name: String,
+        tenant: &str,
+        key_name: &str,
         version_id: u32,
     ) -> Result<Option<internal::KeyVersion>> {
         let trx_result = self
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-                let key_name = key_name.clone();
-
-                async move {
+                async {
+                    let trx = trx;
                     let key_version = self
                         .db
-                        .get_key_version(&trx, tenant.as_str(), &key_name, version_id)
+                        .get_key_version(&trx, tenant, &key_name, version_id)
                         .await?;
                     Ok(key_version)
                 }
@@ -293,41 +281,38 @@ impl ValvAPI for Valv {
 
     async fn encrypt(
         &self,
-        tenant: String,
-        key_name: String,
+        tenant: &str,
+        key_name: &str,
         plaintext: Vec<u8>,
     ) -> Result<Vec<u8>> {
         let trx_result = self
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-                let key_name = key_name.clone();
-                let plaintext = plaintext.clone();
 
-                async move {
+                async {
+                    let trx = trx;
                     let key = self
                         .db
-                        .get_key_metadata(&trx, tenant.as_str(), &key_name)
+                        .get_key_metadata(&trx, tenant, &key_name)
                         .await?;
 
                     let key = match key {
                         Some(key) => key,
                         None => {
-                            return Err(ValvError::KeyNotFound(key_name).into());
+                            return Err(ValvError::KeyNotFound(key_name.to_string()).into());
                         }
                     };
 
                     let key_version = self
                         .db
-                        .get_key_version(&trx, tenant.as_str(), &key.key_id, key.primary_version_id)
+                        .get_key_version(&trx, tenant, &key.key_id, key.primary_version_id)
                         .await?;
 
                     let key_version = match key_version {
                         Some(key_version) => key_version,
                         None => {
-                            return Err(ValvError::KeyNotFound(key_name).into());
+                            return Err(ValvError::KeyNotFound(key_name.to_string()).into());
                         }
                     };
 
@@ -397,46 +382,45 @@ impl ValvAPI for Valv {
 
     async fn decrypt(
         &self,
-        tenant: String,
-        key_name: String,
+        tenant: &str,
+        key_name: &str,
         ciphertext: Vec<u8>,
     ) -> Result<Vec<u8>> {
         let trx_result = self
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-                let key_name = key_name.clone();
-                let ciphertext = ciphertext.clone();
 
-                async move {
+                async {
+                    let trx = trx;
+                    let key_name = key_name;
+
                     let (key_version_id, remainder) = ciphertext.split_at(4);
                     let (iv, remainder) = remainder.split_at(12);
                     let (cipher, tag) = remainder.split_at(remainder.len() - 16);
 
                     let key = self
                         .db
-                        .get_key_metadata(&trx, tenant.as_str(), &key_name)
+                        .get_key_metadata(&trx.clone(), tenant, &key_name)
                         .await?;
 
                     let key = match key {
                         Some(key) => key,
                         None => {
-                            return Err(ValvError::KeyNotFound(key_name).into());
+                            return Err(ValvError::KeyNotFound(key_name.to_string()).into());
                         }
                     };
 
                     let key_version_id = std::io::Cursor::new(key_version_id).get_u32();
                     let key_version = self
                         .db
-                        .get_key_version(&trx, tenant.as_str(), &key.key_id, key_version_id)
+                        .get_key_version(&trx, tenant, &key.key_id, key_version_id)
                         .await?;
 
                     let key_version = match key_version {
                         Some(key_version) => key_version,
                         None => {
-                            return Err(ValvError::KeyNotFound(key_name).into());
+                            return Err(ValvError::KeyNotFound(key_name.to_string()).into());
                         }
                     };
 

@@ -21,7 +21,7 @@ pub trait ValvStorage {
         &self,
         trx: &foundationdb::RetryableTransaction,
         tenant: &str,
-        key: internal::Key,
+        key: &internal::Key,
     ) -> Result<()>;
     async fn get_key_version(
         &self,
@@ -41,8 +41,8 @@ pub trait ValvStorage {
         &self,
         trx: &foundationdb::RetryableTransaction,
         tenant: &str,
-        key: internal::Key,
-        key_version: internal::KeyVersion,
+        key: &internal::Key,
+        key_version: &internal::KeyVersion,
     ) -> Result<()>;
     #[allow(unused)]
     async fn update_key_version(
@@ -51,6 +51,6 @@ pub trait ValvStorage {
         tenant: &str,
         key_id: &str,
         version_id: u32,
-        version: internal::KeyVersion,
+        version: &internal::KeyVersion,
     ) -> Result<()>;
 }

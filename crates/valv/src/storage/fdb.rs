@@ -180,7 +180,7 @@ impl ValvStorage for FoundationDB {
         &self,
         trx: &foundationdb::RetryableTransaction,
         tenant: &str,
-        key: internal::Key,
+        key: &internal::Key,
     ) -> Result<()> {
         let path = self.get_metadata_fdb_key(trx, tenant, &key.key_id).await?;
 
@@ -265,8 +265,8 @@ impl ValvStorage for FoundationDB {
         &self,
         trx: &foundationdb::RetryableTransaction,
         tenant: &str,
-        key: internal::Key,
-        key_version: internal::KeyVersion,
+        key: &internal::Key,
+        key_version: &internal::KeyVersion,
     ) -> Result<()> {
         let version_key = self
             .get_version_fdb_key(trx, tenant, &key.key_id, key_version.version)
@@ -283,7 +283,7 @@ impl ValvStorage for FoundationDB {
         tenant: &str,
         key_id: &str,
         version_id: u32,
-        version: internal::KeyVersion,
+        version: &internal::KeyVersion,
     ) -> Result<()> {
         todo!()
     }
