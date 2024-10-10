@@ -1,3 +1,4 @@
+use foundationdb::FdbBindingError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -5,20 +6,8 @@ pub enum ValvError {
     #[error("IO error")]
     Io(#[from] std::io::Error),
 
-    #[error("Database error")]
-    Database(#[from] foundationdb::FdbError),
-
-    #[error("Transaction commit error")]
-    TransactionCommitError(#[from] foundationdb::TransactionCommitError),
-
-    #[error("Directory error")]
-    DirectoryError(foundationdb::directory::DirectoryError),
-
-    #[error("TuplePacking error")]
-    TuplePacking(#[from] foundationdb::tuple::PackError),
-
-    #[error("Prost decode error")]
-    Decode(#[from] prost::DecodeError),
+    #[error("Storage error")]
+    Storage(#[from] crate::storage::errors::StorageError),
 
     #[error("BoringSSL error")]
     BoringSSL(#[from] boring::error::ErrorStack),
@@ -43,3 +32,9 @@ pub enum ValvError {
 }
 
 pub type Result<T> = std::result::Result<T, ValvError>;
+
+impl From<ValvError> for FdbBindingError {
+    fn from(error: ValvError) -> Self {
+        FdbBindingError::CustomError(Box::new(error))
+    }
+}
