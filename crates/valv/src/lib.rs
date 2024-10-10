@@ -120,9 +120,6 @@ impl ValvAPI for Valv {
             .db
             .database
             .run(|trx, _| {
-                let trx = trx;
-                let tenant = tenant.clone();
-
                 async {
                     let trx = trx;
                     let keys = self.db.list_key_metadata(&trx, tenant).await?;
@@ -401,7 +398,7 @@ impl ValvAPI for Valv {
 
                     let key = self
                         .db
-                        .get_key_metadata(&trx.clone(), tenant, &key_name)
+                        .get_key_metadata(&trx, tenant, &key_name)
                         .await?;
 
                     let key = match key {
