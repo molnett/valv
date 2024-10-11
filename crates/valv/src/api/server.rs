@@ -25,8 +25,8 @@ impl MasterKeyManagementService for API {
         let key = self
             .valv
             .create_key(
-                request.get_ref().keyring_name.clone(),
-                request.get_ref().master_key_id.clone(),
+                &request.get_ref().keyring_name,
+                &request.get_ref().master_key_id,
             )
             .await;
 
@@ -101,8 +101,8 @@ impl MasterKeyManagementService for API {
         let encrypted_value = self
             .valv
             .encrypt(
-                request.get_ref().keyring_name.clone(),
-                request.get_ref().master_key_id.clone(),
+                &request.get_ref().keyring_name,
+                &request.get_ref().master_key_id,
                 request.get_ref().plaintext.clone().to_vec(),
             )
             .await;
@@ -133,9 +133,9 @@ impl MasterKeyManagementService for API {
         let decrypted_result = self
             .valv
             .decrypt(
-                request.get_ref().keyring_name.clone(),
-                request.get_ref().master_key_id.clone(),
-                request.get_ref().ciphertext.clone().to_vec(),
+                &request.get_ref().keyring_name,
+                &request.get_ref().master_key_id,
+                request.get_ref().ciphertext.to_vec(),
             )
             .await;
         match decrypted_result {
