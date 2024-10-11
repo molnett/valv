@@ -258,7 +258,7 @@ impl ValvAPI for Valv {
                     let trx = trx;
                     let key_version = self
                         .db
-                        .get_key_version(&trx, tenant, &key_name, version_id)
+                        .get_key_version(&trx, tenant, key_name, version_id)
                         .await?;
                     Ok(key_version)
                 }
@@ -291,7 +291,7 @@ impl ValvAPI for Valv {
                     let trx = trx;
                     let key = self
                         .db
-                        .get_key_metadata(&trx, tenant, &key_name)
+                        .get_key_metadata(&trx, tenant, key_name)
                         .await?;
 
                     let key = match key {
@@ -390,7 +390,6 @@ impl ValvAPI for Valv {
 
                 async {
                     let trx = trx;
-                    let key_name = key_name;
 
                     let (key_version_id, remainder) = ciphertext.split_at(4);
                     let (iv, remainder) = remainder.split_at(12);
@@ -398,7 +397,7 @@ impl ValvAPI for Valv {
 
                     let key = self
                         .db
-                        .get_key_metadata(&trx, tenant, &key_name)
+                        .get_key_metadata(&trx, tenant, key_name)
                         .await?;
 
                     let key = match key {

@@ -279,11 +279,11 @@ impl ValvStorage for FoundationDB {
 
     async fn update_key_version(
         &self,
-        trx: &foundationdb::RetryableTransaction,
-        tenant: &str,
-        key_id: &str,
-        version_id: u32,
-        version: &internal::KeyVersion,
+        _trx: &foundationdb::RetryableTransaction,
+        _tenant: &str,
+        _key_id: &str,
+        _version_id: u32,
+        _version: &internal::KeyVersion,
     ) -> Result<()> {
         todo!()
     }
