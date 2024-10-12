@@ -1,5 +1,9 @@
+use std::sync::{MutexGuard, PoisonError};
+
 use foundationdb::FdbBindingError;
 use thiserror::Error;
+
+use crate::ValvState;
 
 #[derive(Error, Debug)]
 pub enum ValvError {
@@ -29,6 +33,9 @@ pub enum ValvError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Valv is locked")]
+    Locked,
 }
 
 pub type Result<T> = std::result::Result<T, ValvError>;
