@@ -42,14 +42,14 @@ mod tests {
     async fn setup_server(
     ) -> Result<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>, ValvError> {
         let addr = SERVER_ADDR.parse().expect("Invalid address");
-        let mut valv = Valv::new().await?;
 
         let master_key_bytes: [u8; 32] = "77aaee825aa561995d7bda258f9b76b0"
             .as_bytes()
             .try_into()
             .expect("Invalid master key");
 
-        valv.set_master_key(master_key_bytes);
+        let valv = Valv::new(master_key_bytes).await?;
+
         let api = API {
             valv: Arc::new(valv),
         };
@@ -129,8 +129,9 @@ mod tests {
             plaintext: vec![0; 32].into(),
             keyring_name: "test_tenant".to_string(),
         });
+        println!("test step encrypted start");
         let encrypt_response = client.encrypt(encrypt_request).await.unwrap();
-
+        println!("test step encrypted pass");
         // Assert the encrypt response
         let original_ciphertext = encrypt_response.get_ref().ciphertext.clone();
         assert_eq!(
@@ -145,7 +146,9 @@ mod tests {
             ciphertext: original_ciphertext.clone(),
             keyring_name: "test_tenant".to_string(),
         });
+        println!("test step decrypt start");
         let decrypt_response = client.decrypt(decrypt_request).await.unwrap();
+        println!("test step decrypt pass");
 
         // Assert the decrypt response
         assert_eq!(decrypt_response.get_ref().plaintext.len(), 32);
